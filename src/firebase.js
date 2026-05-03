@@ -16,4 +16,4 @@ const firebaseConfig = {
 
 // Firebase 초기화 및 Firestore DB 객체 내보내기
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+const db = getFirestore(app);
