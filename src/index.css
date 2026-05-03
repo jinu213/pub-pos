@@ -1,0 +1,10 @@
+/* 파일명: src/index.css */
+@import "tailwindcss";
+
+/* 커스텀 스크롤바 스타일 */
+.scrollbar-thin::-webkit-scrollbar { width: 6px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+body { background-color: #0f172a; } /* 메인 배경색 강제 지정 */
