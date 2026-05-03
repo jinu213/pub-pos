@@ -1,8 +1,25 @@
-// 파일명: src/App.jsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { Clock, Users, Utensils, Plus, Minus, X, Check, ArrowRight, AlertCircle, Settings, Trash2, Wifi } from 'lucide-react';
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
-import { db } from "./firebase"; // 방금 만든 설정 파일 연동
+import { 
+  Clock, Users, Utensils, Plus, Minus, X, Check, 
+  ArrowRight, AlertCircle, Settings, Trash2, Wifi, 
+  ChefHat, LayoutDashboard, CheckCircle2, ListOrdered
+} from 'lucide-react';
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
+
+// --- 1. Firebase 설정 ---
+const firebaseConfig = {
+  apiKey: "AIzaSyAnQxnCowRJCcV9RVhqDadqAj9NX_gvSXc",
+  authDomain: "infosys-pos.firebaseapp.com",
+  projectId: "infosys-pos",
+  storageBucket: "infosys-pos.firebasestorage.app",
+  messagingSenderId: "1088430025984",
+  appId: "1:1088430025984:web:7d152276875250d41717e5",
+  measurementId: "G-42VDDVZ90W"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 const SYSTEM_CONFIG = {
   TOTAL_TABLES: 16,
@@ -11,11 +28,11 @@ const SYSTEM_CONFIG = {
 };
 
 const INITIAL_MENU = [
-  { id: 'm1', name: '참이슬', price: 5000, category: '주류' },
-  { id: 'm2', name: '카스', price: 5000, category: '주류' },
-  { id: 'm3', name: '모듬어묵탕', price: 18000, category: '안주' },
-  { id: 'm4', name: '순살 가라아게', price: 20000, category: '안주' },
-  { id: 'm5', name: '과일화채', price: 15000, category: '안주' },
+  { id: 'm1', name: '참이슬', price: 5000 },
+  { id: 'm2', name: '카스', price: 5000 },
+  { id: 'm3', name: '모듬어묵탕', price: 18000 },
+  { id: 'm4', name: '순살 가라아게', price: 20000 },
+  { id: 'm5', name: '과일화채', price: 15000 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
@@ -28,11 +45,10 @@ const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i)
 }));
 
 export default function App() {
-  // --- 상태 관리 ---
+  const [viewMode, setViewMode] = useState('pos');
   const [tables, setTables] = useState([]);
   const [menuCatalog, setMenuCatalog] = useState([]);
-  const [isDbReady, setIsDbReady] = useState(false); // DB 연결 상태
-  
+  const [isDbReady, setIsDbReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [selectedTableId, setSelectedTableId] = useState(null);
   
@@ -40,11 +56,9 @@ export default function App() {
   const [isMenuConfigOpen, setIsMenuConfigOpen] = useState(false);
   const [dialogConfig, setDialogConfig] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
-  // --- ☁️ [핵심] Firestore 실시간 동기화 (구독) ---
+  // Firestore 실시간 동기화
   useEffect(() => {
-    // "pos_data" 컬렉션의 "main_status" 단일 문서를 감시합니다.
     const docRef = doc(db, "pos_data", "main_status");
-    
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -52,18 +66,12 @@ export default function App() {
         setMenuCatalog(data.menuCatalog || []);
         setIsDbReady(true);
       } else {
-        // 최초 실행 시 DB에 기본 구조를 생성합니다.
-        setDoc(docRef, {
-          tables: INITIAL_TABLES,
-          menuCatalog: INITIAL_MENU
-        });
+        setDoc(docRef, { tables: INITIAL_TABLES, menuCatalog: INITIAL_MENU });
       }
     });
-
-    return () => unsubscribe(); // 컴포넌트 종료 시 구독 해제
+    return () => unsubscribe();
   }, []);
 
-  // --- DB 업데이트 헬퍼 함수 ---
   const updateDB = async (newTables, newMenuCatalog) => {
     await setDoc(doc(db, "pos_data", "main_status"), {
       tables: newTables || tables,
@@ -71,16 +79,16 @@ export default function App() {
     }, { merge: true });
   };
 
-  // --- 실시간 시간 동기화 및 ESC 제어 ---
   useEffect(() => {
-    const timerInterval = setInterval(() => setCurrentTime(Date.now()), 1000);
-    return () => clearInterval(timerInterval);
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
+  // ESC 단축키 제어
   useEffect(() => {
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        if (dialogConfig.isOpen) closeDialog();
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (dialogConfig.isOpen) setDialogConfig(prev => ({...prev, isOpen: false}));
         else if (isMergeMode) setIsMergeMode(false);
         else if (isMenuConfigOpen) setIsMenuConfigOpen(false);
         else if (selectedTableId !== null) setSelectedTableId(null);
@@ -90,371 +98,304 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [dialogConfig.isOpen, isMergeMode, isMenuConfigOpen, selectedTableId]);
 
-  // --- 유틸리티 함수 ---
-  const formatCurrency = (amount) => amount.toLocaleString('ko-KR') + '원';
-  const calculateTotalAmount = (orders) => orders.reduce((sum, order) => sum + (order.price * order.quantity), 0);
+  // 주방 데이터 집계 (개별 카드 및 메뉴별 총량)
+  const kitchenData = useMemo(() => {
+    const cards = [];
+    const summary = {};
 
-  const computeTimeMetrics = (startTime, timeLimit, currentTimestamp) => {
-    if (!startTime) return { elapsedStr: '00:00', remainingStr: '00:00', isOvertime: false };
-    const elapsedMs = currentTimestamp - startTime;
-    const remainingMs = (timeLimit * 60 * 1000) - elapsedMs;
-    const isOvertime = remainingMs < 0;
-    const absRemaining = Math.abs(remainingMs);
-    const pad = (num) => String(num).padStart(2, '0');
-    
-    return {
-      elapsedStr: `${pad(Math.floor(elapsedMs / 3600000))}:${pad(Math.floor((elapsedMs % 3600000) / 60000))}`,
-      remainingStr: `${isOvertime ? '+' : ''}${pad(Math.floor(absRemaining / 3600000))}:${pad(Math.floor((absRemaining % 3600000) / 60000))}:${pad(Math.floor((absRemaining % 60000) / 1000))}`,
-      isOvertime
+    tables.forEach(table => {
+      table.orders.forEach(order => {
+        const remaining = order.quantity - (order.prepared || 0);
+        if (remaining > 0) {
+          summary[order.name] = (summary[order.name] || 0) + remaining;
+          for (let i = 0; i < remaining; i++) {
+            cards.push({
+              tableId: table.id,
+              tableLabel: table.label,
+              orderId: order.id,
+              orderName: order.name,
+              startTime: table.startTime,
+              uniqueKey: `${table.id}-${order.id}-${i}`
+            });
+          }
+        }
+      });
+    });
+    return { 
+      cards: cards.sort((a, b) => a.startTime - b.startTime), 
+      summary: Object.entries(summary).sort((a, b) => b[1] - a[1]) 
     };
-  };
+  }, [tables]);
 
-  const showDialog = (title, message, onConfirm) => setDialogConfig({ isOpen: true, title, message, onConfirm });
-  const closeDialog = () => setDialogConfig({ isOpen: false, title: '', message: '', onConfirm: null });
-
-  // --- 데이터 조작 (이제 DB로 바로 쏩니다) ---
-  const handleAddMenu = () => {
-    const newCatalog = [...menuCatalog, { id: `m${Date.now()}`, name: '새로운 메뉴', price: 0, category: '기본' }];
-    updateDB(null, newCatalog);
-  };
-
-  const handleUpdateMenu = (id, field, value) => {
-    const newCatalog = menuCatalog.map(menu => menu.id === id ? { ...menu, [field]: value } : menu);
-    updateDB(null, newCatalog);
-  };
-
-  const handleDeleteMenu = (id) => {
-    if(window.confirm('이 메뉴를 삭제하시겠습니까?')) {
-      updateDB(null, menuCatalog.filter(menu => menu.id !== id));
-    }
-  };
-
-  const handleTableInteraction = (id) => setSelectedTableId(id);
-
-  const processOrderAddition = (menuItem) => {
-    const newTables = tables.map(table => {
-      if (table.id === selectedTableId) {
-        const existingItem = table.orders.find(o => o.id === menuItem.id);
-        const updatedOrders = existingItem 
-          ? table.orders.map(o => o.id === menuItem.id ? { ...o, quantity: o.quantity + 1 } : o)
-          : [...table.orders, { ...menuItem, quantity: 1 }];
-        
-        const isFirstOrder = table.startTime === null;
-        return { 
-          ...table, 
-          orders: updatedOrders,
-          status: isFirstOrder ? 'occupied' : table.status,
-          startTime: isFirstOrder ? Date.now() : table.startTime
-        };
+  const completeKitchenOrder = (tableId, orderId) => {
+    const newTables = tables.map(t => {
+      if (t.id === tableId) {
+        const newOrders = t.orders.map(o => o.id === orderId ? { ...o, prepared: (o.prepared || 0) + 1 } : o);
+        return { ...t, orders: newOrders };
       }
-      return table;
+      return t;
+    });
+    updateDB(newTables, null);
+  };
+
+  const processOrderAddition = (menu) => {
+    const newTables = tables.map(t => {
+      if (t.id === selectedTableId) {
+        const exist = t.orders.find(o => o.id === menu.id);
+        const updated = exist 
+          ? t.orders.map(o => o.id === menu.id ? { ...o, quantity: o.quantity + 1 } : o)
+          : [...t.orders, { ...menu, quantity: 1, prepared: 0 }];
+        const isFirst = t.startTime === null;
+        return { ...t, orders: updated, status: isFirst ? 'occupied' : t.status, startTime: isFirst ? Date.now() : t.startTime };
+      }
+      return t;
     });
     updateDB(newTables, null);
   };
 
   const processOrderRemoval = (menuId) => {
-    const newTables = tables.map(table => {
-      if (table.id === selectedTableId) {
-        const existingItem = table.orders.find(o => o.id === menuId);
-        if (!existingItem) return table;
-        const updatedOrders = existingItem.quantity > 1
-          ? table.orders.map(o => o.id === menuId ? { ...o, quantity: o.quantity - 1 } : o)
-          : table.orders.filter(o => o.id !== menuId);
-        return { ...table, orders: updatedOrders };
+    const newTables = tables.map(t => {
+      if (t.id === selectedTableId) {
+        const exist = t.orders.find(o => o.id === menuId);
+        if (!exist) return t;
+        const updated = exist.quantity > 1
+          ? t.orders.map(o => o.id === menuId ? { ...o, quantity: o.quantity - 1, prepared: Math.min(o.prepared || 0, o.quantity - 1) } : o)
+          : t.orders.filter(o => o.id !== menuId);
+        return { ...t, orders: updated };
       }
-      return table;
+      return t;
     });
     updateDB(newTables, null);
   };
 
-  const executeCheckout = () => {
-    const table = tables.find(t => t.id === selectedTableId);
-    if(table.orders.length === 0) { setSelectedTableId(null); return; }
-
-    const totalAmount = calculateTotalAmount(table.orders);
-    showDialog(
-      '결제 처리',
-      `[${table.label}]의 결제를 완료하시겠습니까?\n최종 결제 금액은 ${formatCurrency(totalAmount)} 입니다.`,
-      () => {
-        const newTables = tables.map(t => 
-          t.id === selectedTableId 
-            ? { ...t, status: 'empty', orders: [], startTime: null, timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, label: `테이블 ${t.id}` }
-            : t
-        );
-        updateDB(newTables, null);
-        setSelectedTableId(null);
-        closeDialog();
+  // --- 합석 실행 로직 ---
+  const executeMerge = (sourceId) => {
+    const newTables = [...tables];
+    const targetIdx = newTables.findIndex(t => t.id === selectedTableId);
+    const sourceIdx = newTables.findIndex(t => t.id === sourceId);
+    
+    const mergedOrders = [...newTables[targetIdx].orders];
+    newTables[sourceIdx].orders.forEach(sourceItem => {
+      const existingIdx = mergedOrders.findIndex(item => item.id === sourceItem.id);
+      if (existingIdx !== -1) {
+        mergedOrders[existingIdx] = { 
+          ...mergedOrders[existingIdx], 
+          quantity: mergedOrders[existingIdx].quantity + sourceItem.quantity, 
+          prepared: (mergedOrders[existingIdx].prepared || 0) + (sourceItem.prepared || 0) 
+        };
+      } else { 
+        mergedOrders.push({ ...sourceItem }); 
       }
-    );
+    });
+
+    newTables[targetIdx] = { 
+      ...newTables[targetIdx], 
+      orders: mergedOrders, 
+      timeLimit: newTables[targetIdx].timeLimit + SYSTEM_CONFIG.MERGE_BONUS_MIN, 
+      label: `${newTables[targetIdx].label} (+${sourceId}번)` 
+    };
+
+    newTables[sourceIdx] = { 
+      ...newTables[sourceIdx], 
+      status: 'empty', 
+      orders: [], 
+      startTime: null, 
+      timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, 
+      label: `테이블 ${sourceId}` 
+    };
+
+    updateDB(newTables, null);
+    setIsMergeMode(false);
   };
 
-  const executeTableMerge = (sourceTableId) => {
-    const targetTable = tables.find(t => t.id === selectedTableId);
-    const sourceTable = tables.find(t => t.id === sourceTableId);
-
-    showDialog(
-      '테이블 합석 처리',
-      `[${sourceTable.label}]을(를) [${targetTable.label}]로 합석하시겠습니까?\n주문 내역이 병합되며 잔여 시간이 ${SYSTEM_CONFIG.MERGE_BONUS_MIN}분 연장됩니다.`,
-      () => {
-        const newTables = [...tables];
-        const targetIdx = newTables.findIndex(t => t.id === selectedTableId);
-        const sourceIdx = newTables.findIndex(t => t.id === sourceTableId);
-
-        const mergedOrders = [...newTables[targetIdx].orders];
-        newTables[sourceIdx].orders.forEach(sourceItem => {
-          const existingIdx = mergedOrders.findIndex(item => item.id === sourceItem.id);
-          if (existingIdx !== -1) {
-            mergedOrders[existingIdx] = { ...mergedOrders[existingIdx], quantity: mergedOrders[existingIdx].quantity + sourceItem.quantity };
-          } else {
-            mergedOrders.push({ ...sourceItem });
-          }
-        });
-
-        newTables[targetIdx] = {
-          ...newTables[targetIdx],
-          orders: mergedOrders,
-          timeLimit: newTables[targetIdx].timeLimit + SYSTEM_CONFIG.MERGE_BONUS_MIN,
-          label: `${newTables[targetIdx].label} (+${sourceTable.id}번)`
-        };
-
-        newTables[sourceIdx] = {
-          ...newTables[sourceIdx],
-          status: 'empty', orders: [], startTime: null,
-          timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN,
-          label: `테이블 ${sourceTable.id}`
-        };
-
-        updateDB(newTables, null);
-        setIsMergeMode(false);
-        closeDialog();
-      }
-    );
+  const formatCurrency = (val) => Number(val).toLocaleString('ko-KR') + '원';
+  const calculateTotal = (orders) => orders.reduce((sum, o) => sum + (o.price * o.quantity), 0);
+  const computeTime = (start, limit, current) => {
+    if (!start) return { remaining: '00:00:00', isOver: false };
+    const elapMs = current - start;
+    const remMs = (limit * 60 * 1000) - elapMs;
+    const isOver = remMs < 0;
+    const absRem = Math.abs(remMs);
+    const pad = (n) => String(n).padStart(2, '0');
+    return {
+      remaining: `${isOver ? '+' : ''}${pad(Math.floor(absRem / 3600000))}:${pad(Math.floor((absRem % 3600000) / 60000))}:${pad(Math.floor((absRem % 60000) / 1000))}`,
+      isOver
+    };
   };
 
-  const activeTable = useMemo(() => tables.find(t => t.id === selectedTableId), [tables, selectedTableId]);
+  // 합석 가능한 테이블 필터링 (현재 선택된 테이블 제외, 사용 중인 테이블만)
   const availableMergeTargets = useMemo(() => tables.filter(t => t.status === 'occupied' && t.id !== selectedTableId), [tables, selectedTableId]);
 
-  // 로딩 화면 처리
-  if (!isDbReady) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white gap-4">
-        <Wifi className="h-10 w-10 text-indigo-500 animate-pulse" />
-        <h2 className="text-xl font-bold">서버와 실시간 연결 중입니다...</h2>
-        <p className="text-slate-400 text-sm">Cloud Firestore 동기화 대기 중</p>
-      </div>
-    );
-  }
+  if (!isDbReady) return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white gap-4">
+      <Wifi className="h-10 w-10 text-indigo-500 animate-pulse" />
+      <h2 className="text-xl font-bold tracking-tighter">정보시스템학과 POS 연결 중...</h2>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 p-6 font-sans selection:bg-indigo-500/30">
-      {/* 헤더 */}
-      <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-700 pb-5 gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
-            <Utensils className="h-8 w-8 text-indigo-400" />
-            통합 주점 POS 시스템
-          </h1>
-          <p className="text-emerald-400 mt-2 text-sm flex items-center gap-1">
-            <Wifi className="h-4 w-4" /> 실시간 클라우드 동기화 켜짐
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setIsMenuConfigOpen(true)}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-indigo-600/30 border border-slate-700 hover:border-indigo-500 text-slate-300 px-4 py-3 rounded-xl transition-all"
-          >
-            <Settings className="h-5 w-5" />
-            <span className="font-semibold text-sm">메뉴 관리</span>
-          </button>
-          <div className="bg-slate-800/50 px-5 py-3 rounded-xl border border-slate-700/50 flex flex-col items-end min-w-[140px]">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">System Time</span>
-            <span className="text-xl font-mono tracking-widest text-indigo-300">
-              {new Date(currentTime).toLocaleTimeString('ko-KR', { hour12: false })}
-            </span>
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500/30">
+      <nav className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-6 py-4 sticky top-0 z-30 shadow-2xl">
+        <div className="max-w-[1800px] mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-8">
+            <h1 className="text-2xl font-black text-white flex items-center gap-2 tracking-tighter cursor-default">
+              <Utensils className="h-7 w-7 text-indigo-500" /> INFOSYS POS
+            </h1>
+            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner">
+              <button onClick={() => setViewMode('pos')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 hover:scale-105 active:scale-95 ${viewMode === 'pos' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
+                <LayoutDashboard className="h-4 w-4" /> 홀 관리
+              </button>
+              <button onClick={() => setViewMode('kitchen')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 hover:scale-105 active:scale-95 ${viewMode === 'kitchen' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
+                <ChefHat className="h-4 w-4" /> 주방 현황
+                {kitchenData.cards.length > 0 && <span className="ml-2 bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-bounce">{kitchenData.cards.length}</span>}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <button onClick={() => setIsMenuConfigOpen(true)} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 transition-all duration-200 hover:bg-slate-700 hover:border-indigo-500 hover:text-white">
+              <Settings className="h-5 w-5" />
+            </button>
+            <div className="text-right cursor-default"><div className="text-xl font-mono text-indigo-400 font-bold tracking-tighter">{new Date(currentTime).toLocaleTimeString('ko-KR', { hour12: false })}</div></div>
           </div>
         </div>
-      </header>
+      </nav>
 
-      {/* 테이블 그리드 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-        {tables.map(table => {
-          const { elapsedStr, remainingStr, isOvertime } = computeTimeMetrics(table.startTime, table.timeLimit, currentTime);
-          const currentTotal = calculateTotalAmount(table.orders);
-          const isOccupied = table.status === 'occupied';
-          
-          return (
-            <button
-              key={table.id}
-              onClick={() => handleTableInteraction(table.id)}
-              className={`
-                relative flex flex-col text-left p-5 rounded-2xl shadow-lg transition-all duration-300 border-2 outline-none
-                ${!isOccupied 
-                  ? 'bg-slate-800/40 border-slate-700/50 hover:border-indigo-500/50 hover:bg-slate-800' 
-                  : 'bg-gradient-to-br from-slate-800 to-slate-800/90 border-indigo-500 hover:border-indigo-400 transform hover:-translate-y-1'
-                }
-              `}
-            >
-              <div className="flex justify-between items-start w-full mb-4">
-                <span className={`text-lg font-bold ${isOccupied ? 'text-white' : 'text-slate-400'}`}>{table.label}</span>
-                {isOccupied && (
-                  <span className={`px-2.5 py-1 rounded-md text-xs font-bold font-mono shadow-inner ${isOvertime ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'}`}>
-                    {isOvertime ? '초과 ' : '잔여 '}{remainingStr}
-                  </span>
-                )}
-              </div>
-
-              {!isOccupied ? (
-                <div className="flex flex-col items-center justify-center flex-1 w-full text-slate-500 py-6">
-                  <Users className="h-10 w-10 mb-3 opacity-40" />
-                  <span className="text-sm font-medium">빈 테이블 (클릭하여 주문)</span>
-                </div>
-              ) : (
-                <div className="flex flex-col w-full flex-1">
-                  <div className="mb-4 space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-slate-400 bg-slate-900/50 p-2 rounded-lg">
-                      <Clock className="h-4 w-4 text-indigo-400" />
-                      <span>경과 시간</span>
-                      <span className="ml-auto font-mono text-slate-300">{elapsedStr}</span>
-                    </div>
-                    <div className="pt-2">
-                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                        주문 내역 ({table.orders.reduce((acc, o) => acc + o.quantity, 0)})
-                      </div>
-                      <div className="max-h-24 overflow-y-auto pr-1 space-y-1 scrollbar-thin">
-                        {table.orders.map(order => (
-                          <div key={order.id} className="flex justify-between text-sm py-1 border-b border-slate-700/50 last:border-0">
-                            <span className="truncate pr-2 text-slate-300">{order.name}</span>
-                            <span className="flex-shrink-0 text-slate-400 font-medium">{order.quantity}</span>
+      <main className="p-6 max-w-[1800px] mx-auto">
+        {viewMode === 'pos' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            {tables.map(table => {
+              const { remaining, isOver } = computeTime(table.startTime, table.timeLimit, currentTime);
+              const isOcc = table.status === 'occupied';
+              return (
+                <button key={table.id} onClick={() => setSelectedTableId(table.id)} className={`group relative flex flex-col p-5 rounded-2xl border-2 transition-all duration-300 hover:scale-[1.02] active:scale-95 text-left ${!isOcc ? 'bg-slate-900/40 border-slate-800 hover:border-indigo-500/50' : 'bg-slate-900 border-indigo-600 shadow-indigo-600/10 shadow-xl hover:border-indigo-400'}`}>
+                  <div className="flex justify-between items-start w-full mb-4">
+                    <span className={`text-lg font-black transition-colors ${isOcc ? 'text-white' : 'text-slate-600 group-hover:text-slate-400'}`}>{table.label}</span>
+                    {isOcc && <span className={`px-2 py-1 rounded text-xs font-mono font-bold ${isOver ? 'text-rose-400 bg-rose-500/10' : 'text-indigo-400 bg-indigo-500/10'}`}>{remaining}</span>}
+                  </div>
+                  {!isOcc ? <div className="flex-1 flex flex-col items-center justify-center py-8 opacity-20 group-hover:opacity-40 transition-opacity"><Users className="h-10 w-10 mb-2" /><span className="text-xs font-bold uppercase tracking-widest">Available</span></div> : (
+                    <div className="flex-1 flex flex-col w-full">
+                      <div className="space-y-1.5 mb-4 max-h-32 overflow-y-auto scrollbar-thin">
+                        {table.orders.map(o => (
+                          <div key={o.id} className="flex justify-between text-sm items-center py-0.5 border-b border-slate-800 last:border-0">
+                            <span className="text-slate-400 font-medium truncate pr-2">{o.name}</span>
+                            <span className={`font-bold transition-colors ${o.prepared >= o.quantity ? 'text-emerald-500' : 'text-white'}`}>{o.prepared || 0}/{o.quantity}</span>
                           </div>
                         ))}
                       </div>
+                      <div className="mt-auto pt-4 border-t border-slate-800 flex justify-between items-baseline">
+                        <span className="text-[10px] text-slate-600 font-black tracking-widest">TOTAL</span>
+                        <span className="text-xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(table.orders))}</span>
+                      </div>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col lg:flex-row gap-8 animate-in fade-in duration-300">
+            <div className="flex-1">
+              <h2 className="text-xl font-black mb-6 flex items-center gap-2"><ChefHat className="h-6 w-6 text-emerald-500" /> 실시간 조리 대기열</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {kitchenData.cards.map((item) => (
+                  <div key={item.uniqueKey} className="bg-slate-900 border-2 border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col transition-all duration-300 hover:border-emerald-500/40">
+                    <div className="bg-slate-800/50 p-4 border-b border-slate-800 flex justify-between items-center">
+                      <span className="bg-indigo-600 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-lg">TABLE {item.tableId}</span>
+                      <span className="text-[10px] font-mono text-slate-500">{new Date(item.startTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <div className="p-8 text-center flex-1 flex flex-col justify-center">
+                      <div className="text-2xl font-black text-white mb-8 tracking-tight leading-tight">{item.orderName}</div>
+                      <button onClick={() => completeKitchenOrder(item.tableId, item.orderId)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-5 rounded-2xl font-black text-xl shadow-lg shadow-emerald-900/20 transition-all duration-200 hover:scale-[1.03] active:scale-95 flex items-center justify-center gap-2">
+                        <Check className="h-6 w-6 stroke-[3px]" /> 조리 완료
+                      </button>
                     </div>
                   </div>
-                  <div className="mt-auto pt-4 border-t border-slate-700 flex justify-between items-end">
-                    <span className="text-sm font-medium text-slate-400">결제 예정액</span>
-                    <span className="text-xl font-bold text-emerald-400 tracking-tight">{formatCurrency(currentTotal)}</span>
-                  </div>
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 테이블 관리 모달 */}
-      {activeTable && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-40">
-          <div className="bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-700 ring-1 ring-white/10">
-            <div className="flex justify-between items-center p-6 border-b border-slate-800 bg-slate-900">
-              <div>
-                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                  {activeTable.label} <span className="text-slate-500 text-lg font-normal">관리 메뉴</span>
-                </h2>
-                {activeTable.status === 'empty' && (
-                  <p className="text-indigo-400 text-sm mt-1">메뉴를 추가하는 즉시 시스템 전역에 시간이 동기화됩니다. (ESC 닫기)</p>
-                )}
+                ))}
+                {kitchenData.cards.length === 0 && <div className="col-span-full h-[60vh] flex flex-col items-center justify-center opacity-10 border-2 border-dashed border-slate-800 rounded-3xl"><CheckCircle2 className="h-20 w-20 mb-4" /><span className="text-2xl font-black">대기 중인 주문이 없습니다</span></div>}
               </div>
-              <button onClick={() => { setSelectedTableId(null); setIsMergeMode(false); }} className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-full transition-colors">
-                <X className="h-6 w-6" />
-              </button>
             </div>
+            <aside className="w-full lg:w-80 bg-slate-900/50 rounded-3xl p-8 border border-slate-800 shadow-2xl h-fit sticky top-28">
+              <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-6 flex items-center gap-2"><ListOrdered className="h-4 w-4 text-emerald-500" /> 메뉴별 합계</h3>
+              <div className="space-y-4">
+                {kitchenData.summary.length > 0 ? kitchenData.summary.map(([name, count]) => (
+                  <div key={name} className="flex justify-between items-center bg-slate-950 p-4 rounded-2xl border border-slate-800"><span className="font-bold text-slate-300">{name}</span><span className="bg-emerald-600/10 text-emerald-500 px-3 py-1 rounded-lg font-black text-lg">{count}</span></div>
+                )) : <div className="py-12 text-center text-slate-700 text-xs font-bold">집계할 주문 없음</div>}
+              </div>
+            </aside>
+          </div>
+        )}
+      </main>
 
-            <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-[500px]">
-              <div className="w-full md:w-3/5 p-6 border-r border-slate-800 overflow-y-auto bg-slate-900/50">
-                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">메뉴 추가</h3>
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      {/* 🟢 모달: 홀 테이블 관리 (주문 추가/결제/합석) */}
+      {selectedTableId && tables.find(t => t.id === selectedTableId) && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-4 z-40 animate-in fade-in duration-200">
+          <div className="bg-slate-900 rounded-3xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-800 shadow-2xl relative">
+            <div className="p-8 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+              <h2 className="text-3xl font-black tracking-tighter text-white">{tables.find(t => t.id === selectedTableId).label}</h2>
+              <button onClick={() => setSelectedTableId(null)} className="p-3 bg-slate-800 hover:bg-rose-500/20 hover:text-rose-400 rounded-full transition-all"><X className="h-8 w-8" /></button>
+            </div>
+            <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+              <div className="flex-1 p-8 overflow-y-auto bg-slate-950/50">
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                   {menuCatalog.map(menu => (
-                    <button
-                      key={menu.id}
-                      onClick={() => processOrderAddition(menu)}
-                      className="bg-slate-800 hover:bg-indigo-600/20 border border-slate-700 hover:border-indigo-500 rounded-xl p-4 text-left transition-all group flex flex-col justify-between h-24 shadow-sm"
-                    >
-                      <div className="text-sm font-semibold text-slate-200 group-hover:text-indigo-200">{menu.name}</div>
-                      <div className="text-sm font-medium text-indigo-400 mt-2">{formatCurrency(Number(menu.price))}</div>
+                    <button key={menu.id} onClick={() => processOrderAddition(menu)} className="bg-slate-900 p-5 rounded-2xl border border-slate-800 text-left transition-all duration-200 hover:border-indigo-500 hover:bg-slate-800 hover:shadow-lg active:scale-95 flex flex-col justify-between h-32">
+                      <div className="font-black text-slate-200 leading-tight">{menu.name}</div>
+                      <div className="text-indigo-400 font-black">{formatCurrency(menu.price)}</div>
                     </button>
                   ))}
                 </div>
               </div>
-
-              <div className="w-full md:w-2/5 flex flex-col bg-slate-900">
-                <div className="p-6 flex-1 flex flex-col overflow-hidden">
-                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">현재 주문 내역</h3>
-                  <div className="flex-1 overflow-y-auto pr-2 space-y-3 scrollbar-thin">
-                    {activeTable.orders.length === 0 ? (
-                      <div className="h-full flex items-center justify-center text-slate-500 text-sm">주문 대기 중입니다.</div>
-                    ) : (
-                      activeTable.orders.map(order => (
-                        <div key={order.id} className="flex items-center justify-between bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm">
-                          <div className="flex-1">
-                            <div className="text-sm font-bold text-white mb-1">{order.name}</div>
-                            <div className="text-xs font-medium text-slate-400">{formatCurrency(Number(order.price))}</div>
-                          </div>
-                          <div className="flex items-center gap-4 bg-slate-900 p-1.5 rounded-lg border border-slate-700">
-                            <button onClick={() => processOrderRemoval(order.id)} className="p-1.5 rounded-md text-slate-400 hover:bg-rose-500/20 hover:text-rose-400 transition-colors">
-                              <Minus className="h-4 w-4" />
-                            </button>
-                            <span className="w-4 text-center font-bold text-white">{order.quantity}</span>
-                            <button onClick={() => processOrderAddition(order)} className="p-1.5 rounded-md text-slate-400 hover:bg-indigo-500/20 hover:text-indigo-400 transition-colors">
-                              <Plus className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="p-6 border-t border-slate-800 bg-slate-900 shadow-[0_-10px_30px_-15px_rgba(0,0,0,0.5)]">
-                  <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 mb-4">
-                    <div className="flex justify-between items-end">
-                      <span className="text-sm font-medium text-slate-400">총 결제 금액</span>
-                      <span className="text-3xl font-extrabold text-emerald-400 tracking-tight">
-                        {formatCurrency(calculateTotalAmount(activeTable.orders))}
-                      </span>
+              <div className="w-full md:w-[420px] bg-slate-900 p-8 flex flex-col border-l border-slate-800">
+                <h3 className="text-[10px] font-black text-slate-600 uppercase mb-6 tracking-widest">CURRENT ORDERS</h3>
+                <div className="flex-1 overflow-y-auto space-y-3 mb-8 pr-1 scrollbar-thin">
+                  {tables.find(t => t.id === selectedTableId).orders.map(o => (
+                    <div key={o.id} className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex justify-between items-center shadow-lg">
+                      <div className="flex-1"><div className="text-sm font-black text-white">{o.name}</div><div className="text-[10px] text-slate-600 font-bold uppercase mt-1">Ready: {o.prepared || 0} / {o.quantity}</div></div>
+                      <div className="flex items-center gap-3 bg-slate-900 p-2 rounded-xl border border-slate-800">
+                        <button onClick={() => processOrderRemoval(o.id)} className="p-1.5 text-slate-500 hover:text-rose-500 transition-colors"><Minus className="h-5 w-5" /></button>
+                        <span className="font-black text-white min-w-[24px] text-center text-lg">{o.quantity}</span>
+                        <button onClick={() => processOrderAddition(o)} className="p-1.5 text-slate-500 hover:text-indigo-500 transition-colors"><Plus className="h-5 w-5" /></button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setIsMergeMode(true)}
-                      disabled={activeTable.status === 'empty'}
-                      className="flex-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white py-4 rounded-xl font-semibold border border-slate-600 transition-colors"
-                    >
-                      <ArrowRight className="h-5 w-5 text-indigo-400" /> 합석
-                    </button>
-                    <button
-                      onClick={executeCheckout}
-                      className="flex-[2] flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-xl font-bold shadow-lg shadow-indigo-900/30 transition-all"
-                    >
-                      <Check className="h-5 w-5" /> 결제 및 종료
-                    </button>
+                  ))}
+                </div>
+                <div className="mt-auto border-t border-slate-800 pt-8">
+                  <div className="flex justify-between items-end mb-8"><span className="text-xs font-black text-slate-600 tracking-widest">TOTAL</span><span className="text-4xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(tables.find(t => t.id === selectedTableId).orders))}</span></div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button onClick={() => setIsMergeMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-5 rounded-2xl font-black text-xs transition-all active:scale-95 text-white">합석 처리</button>
+                    <button onClick={() => {
+                        const table = tables.find(t => t.id === selectedTableId);
+                        setDialogConfig({
+                          isOpen: true, title: '최종 결제 및 퇴장', message: `결제 금액은 ${formatCurrency(calculateTotal(table.orders))} 입니다.\n해당 테이블을 초기화하시겠습니까?`,
+                          onConfirm: () => {
+                            updateDB(tables.map(t => t.id === selectedTableId ? { ...t, status: 'empty', orders: [], startTime: null, timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, label: `테이블 ${t.id}` } : t));
+                            setSelectedTableId(null);
+                            setDialogConfig(prev => ({ ...prev, isOpen: false }));
+                          }
+                        });
+                      }} className="bg-indigo-600 hover:bg-indigo-500 py-5 rounded-2xl font-black text-xs shadow-xl shadow-indigo-900/20 transition-all active:scale-95 text-white">결제 완료</button>
                   </div>
                 </div>
               </div>
             </div>
 
+            {/* 🔴 내부 모달: 합석 대상 선택 (가상 Z-index 레이어) */}
             {isMergeMode && (
-              <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-6 z-50">
-                <div className="bg-slate-800 p-8 rounded-2xl w-full max-w-lg border border-slate-700 shadow-2xl">
-                  <div className="flex items-center gap-3 mb-4">
-                    <ArrowRight className="h-6 w-6 text-indigo-400" />
-                    <h3 className="text-xl font-bold text-white">합석 대상 테이블 선택</h3>
-                  </div>
-                  <div className="max-h-64 overflow-y-auto space-y-3 mb-6 scrollbar-thin">
-                    {availableMergeTargets.length === 0 ? (
-                      <div className="p-6 text-center text-slate-500 bg-slate-900/50 rounded-xl border border-slate-800">합석 가능한 테이블이 없습니다.</div>
-                    ) : (
-                      availableMergeTargets.map(t => (
-                        <button key={t.id} onClick={() => executeTableMerge(t.id)} className="w-full flex justify-between items-center p-5 bg-slate-900/50 hover:bg-indigo-600/20 rounded-xl border border-slate-700 hover:border-indigo-500 transition-all text-left group">
-                          <div>
-                            <div className="font-bold text-slate-200 group-hover:text-white">{t.label}</div>
-                            <div className="text-sm font-medium text-emerald-400 mt-1">현재 주문액: {formatCurrency(calculateTotalAmount(t.orders))}</div>
-                          </div>
-                          <div className="bg-slate-800 p-2 rounded-lg group-hover:bg-indigo-500/30"><Plus className="text-slate-400 group-hover:text-indigo-300 h-5 w-5" /></div>
-                        </button>
-                      ))
+              <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-xl flex flex-col p-8 z-50 animate-in fade-in duration-200">
+                <div className="max-w-lg mx-auto w-full mt-10">
+                  <h3 className="text-2xl font-black mb-8 flex items-center gap-3 text-white"><ArrowRight className="h-8 w-8 text-indigo-500" /> 합석할 대상 테이블 선택</h3>
+                  <div className="space-y-4 max-h-[60vh] overflow-y-auto mb-10 pr-2 scrollbar-thin">
+                    {availableMergeTargets.map(t => (
+                      <button key={t.id} onClick={() => executeMerge(t.id)} className="w-full p-6 bg-slate-900 rounded-2xl border-2 border-slate-800 text-left flex justify-between items-center group hover:border-indigo-500 transition-all duration-200 hover:shadow-lg active:scale-95">
+                        <div><div className="font-black text-slate-300 group-hover:text-white text-lg">{t.label}</div><div className="text-sm text-emerald-500 font-bold mt-1">{formatCurrency(calculateTotal(t.orders))}</div></div>
+                        <Plus className="h-6 w-6 text-slate-700 group-hover:text-indigo-400" />
+                      </button>
+                    ))}
+                    {availableMergeTargets.length === 0 && (
+                      <div className="p-8 text-center text-slate-500 font-bold bg-slate-900/50 rounded-2xl border border-slate-800">현재 합석 가능한(사용 중인) 다른 테이블이 없습니다.</div>
                     )}
                   </div>
-                  <button onClick={() => setIsMergeMode(false)} className="w-full py-4 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-semibold transition-colors">취소</button>
+                  <button onClick={() => setIsMergeMode(false)} className="w-full py-5 bg-slate-800 hover:bg-slate-700 rounded-2xl font-black text-white transition-all active:scale-95">뒤로 가기</button>
                 </div>
               </div>
             )}
@@ -462,65 +403,51 @@ export default function App() {
         </div>
       )}
 
-      {/* 메뉴 관리 모달 */}
+      {/* 모달: 메뉴 관리 */}
       {isMenuConfigOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-800 p-8 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl max-h-[80vh] flex flex-col">
-            <div className="flex justify-between items-center border-b border-slate-700 pb-4 mb-4">
-              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                <Settings className="h-6 w-6 text-indigo-400" /> 메뉴 및 시스템 관리
-              </h2>
-              <button onClick={() => setIsMenuConfigOpen(false)} className="text-slate-400 hover:text-white transition-colors">
-                <X className="h-6 w-6" />
-              </button>
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in zoom-in-95 duration-200">
+          <div className="bg-slate-900 rounded-3xl w-full max-w-2xl border border-slate-800 p-10 flex flex-col max-h-[85vh] shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+            <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-6">
+              <h2 className="text-3xl font-black flex items-center gap-3"><Settings className="h-8 w-8 text-indigo-500" /> 메뉴 관리</h2>
+              <button onClick={() => setIsMenuConfigOpen(false)} className="hover:text-rose-500 transition-colors"><X className="h-8 w-8" /></button>
             </div>
-            <div className="flex-1 overflow-y-auto scrollbar-thin pr-2 mb-4">
-              <div className="space-y-3">
-                {menuCatalog.map(menu => (
-                  <div key={menu.id} className="flex gap-3 items-center bg-slate-900/50 p-3 rounded-xl border border-slate-700">
-                    <input 
-                      type="text" value={menu.name}
-                      onChange={(e) => handleUpdateMenu(menu.id, 'name', e.target.value)}
-                      placeholder="메뉴명" className="flex-1 bg-slate-800 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-                    />
-                    <div className="relative">
-                      <input 
-                        type="number" value={menu.price}
-                        onChange={(e) => handleUpdateMenu(menu.id, 'price', e.target.value)}
-                        placeholder="가격" className="w-32 bg-slate-800 border border-slate-600 text-white rounded-lg pl-3 pr-8 py-2 text-sm focus:outline-none focus:border-indigo-500"
-                      />
-                      <span className="absolute right-3 top-2 text-slate-400 text-sm">원</span>
-                    </div>
-                    <button onClick={() => handleDeleteMenu(menu.id)} className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors">
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+            <div className="flex-1 overflow-y-auto space-y-4 mb-8 pr-4 scrollbar-thin">
+              {menuCatalog.map(m => (
+                <div key={m.id} className="flex gap-4 bg-slate-950 p-4 rounded-2xl border border-slate-800 shadow-lg group hover:border-indigo-500/50 transition-all">
+                  <input type="text" value={m.name} onChange={(e) => updateDB(null, menuCatalog.map(item => item.id === m.id ? {...item, name: e.target.value} : item))} className="flex-1 bg-slate-900 border-none rounded-xl px-4 py-3 font-bold text-white focus:ring-2 ring-indigo-600 outline-none" />
+                  <input type="number" value={m.price} onChange={(e) => updateDB(null, menuCatalog.map(item => item.id === m.id ? {...item, price: Number(e.target.value)} : item))} className="w-32 bg-slate-900 border-none rounded-xl px-4 py-3 font-bold text-emerald-400 text-right focus:ring-2 ring-indigo-600 outline-none" />
+                  <button onClick={() => updateDB(null, menuCatalog.filter(item => item.id !== m.id))} className="p-3 text-slate-700 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all"><Trash2 className="h-6 w-6" /></button>
+                </div>
+              ))}
             </div>
-            <button onClick={handleAddMenu} className="w-full flex items-center justify-center gap-2 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/50 py-4 rounded-xl font-semibold transition-colors mt-auto">
-              <Plus className="h-5 w-5" /> 새로운 메뉴 항목 추가
-            </button>
+            <button onClick={() => updateDB(null, [...menuCatalog, {id: `m${Date.now()}`, name: '신규 메뉴', price: 0}])} className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-lg transition-all shadow-xl active:scale-95 flex items-center justify-center gap-3"><Plus className="h-6 w-6" /> 메뉴 항목 추가</button>
           </div>
         </div>
       )}
 
-      {/* 공통 다이얼로그 */}
+      {/* 공용 다이얼로그 (확인창) */}
       {dialogConfig.isOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-          <div className="bg-slate-800 p-8 rounded-2xl w-full max-w-sm border border-slate-700 shadow-2xl transform transition-all">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertCircle className="h-6 w-6 text-indigo-400" />
-              <h3 className="text-xl font-bold text-white">{dialogConfig.title}</h3>
-            </div>
-            <p className="text-slate-300 mb-8 whitespace-pre-wrap text-sm leading-relaxed">{dialogConfig.message}</p>
-            <div className="flex gap-3">
-              <button onClick={closeDialog} className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-semibold transition-colors">취소</button>
-              <button onClick={dialogConfig.onConfirm} className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white font-semibold shadow-lg shadow-indigo-900/30 transition-all">확인</button>
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
+          <div className="bg-slate-900 p-10 rounded-3xl w-full max-w-sm border border-slate-800 shadow-2xl text-center">
+            <div className="w-20 h-20 bg-indigo-600/10 rounded-full flex items-center justify-center mx-auto mb-6"><AlertCircle className="h-10 w-10 text-indigo-500" /></div>
+            <h3 className="text-2xl font-black mb-4 text-white tracking-tighter">{dialogConfig.title}</h3>
+            <p className="text-slate-400 font-bold mb-10 text-sm leading-relaxed whitespace-pre-wrap">{dialogConfig.message}</p>
+            <div className="flex gap-4">
+              <button onClick={() => setDialogConfig({...dialogConfig, isOpen: false})} className="flex-1 py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl text-white font-black transition-all">취소</button>
+              <button onClick={dialogConfig.onConfirm} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 rounded-2xl text-white font-black shadow-lg transition-all">확인</button>
             </div>
           </div>
         </div>
       )}
+
+      <style dangerouslySetInnerHTML={{__html: `
+        .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #334155; }
+        @keyframes bounce-subtle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+        .animate-bounce { animation: bounce-subtle 2s infinite; }
+      `}} />
     </div>
   );
 }
