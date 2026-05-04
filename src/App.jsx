@@ -6,8 +6,20 @@ import {
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
-import { db } from "./firebase";
 
+// --- 1. Firebase 설정 ---
+const firebaseConfig = {
+  apiKey: "AIzaSyAnQxnCowRJCcV9RVhqDadqAj9NX_gvSXc",
+  authDomain: "infosys-pos.firebaseapp.com",
+  projectId: "infosys-pos",
+  storageBucket: "infosys-pos.firebasestorage.app",
+  messagingSenderId: "1088430025984",
+  appId: "1:1088430025984:web:7d152276875250d41717e5",
+  measurementId: "G-42VDDVZ90W"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 const SYSTEM_CONFIG = {
   TOTAL_TABLES: 16,
@@ -196,6 +208,20 @@ export default function App() {
     setIsMergeMode(false);
   };
 
+  // --- 🚨 추가된 기능: 전체 테이블 초기화 로직 ---
+  const handleResetAllTables = () => {
+    setDialogConfig({
+      isOpen: true,
+      title: '⚠️ 전체 테이블 초기화',
+      message: '모든 테이블의 주문 내역, 시간, 상태가 완전히 초기화됩니다.\n이 작업은 되돌릴 수 없습니다. 진행하시겠습니까?',
+      onConfirm: () => {
+        updateDB(INITIAL_TABLES, null);
+        setDialogConfig(prev => ({ ...prev, isOpen: false }));
+        setIsMenuConfigOpen(false); // 설정 창 닫기
+      }
+    });
+  };
+
   const formatCurrency = (val) => Number(val).toLocaleString('ko-KR') + '원';
   const calculateTotal = (orders) => orders.reduce((sum, o) => sum + (o.price * o.quantity), 0);
   const computeTime = (start, limit, current) => {
@@ -324,7 +350,7 @@ export default function App() {
         )}
       </main>
 
-      {/* 🟢 모달: 홀 테이블 관리 (모바일 풀 스크린 근접 최적화) */}
+      {/* 🟢 모달: 홀 테이블 관리 */}
       {selectedTableId && tables.find(t => t.id === selectedTableId) && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-0 xs:p-4 z-40 animate-in fade-in duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-5xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
@@ -403,15 +429,18 @@ export default function App() {
         </div>
       )}
 
-      {/* 모달: 메뉴 관리 (반응형 입력 최적화) */}
+      {/* 모달: 시스템 설정 관리 (메뉴 관리 및 전체 초기화) */}
       {isMenuConfigOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-0 xs:p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-2xl border-0 xs:border border-slate-800 p-6 sm:p-10 flex flex-col shadow-2xl">
             <div className="flex justify-between items-center mb-6 sm:mb-8 border-b border-slate-800 pb-4 sm:pb-6">
-              <h2 className="text-xl sm:text-3xl font-black flex items-center gap-3"><Settings className="h-6 w-6 sm:h-8 sm:h-8 text-indigo-500" /> 메뉴 관리</h2>
+              <h2 className="text-xl sm:text-3xl font-black flex items-center gap-3"><Settings className="h-6 w-6 sm:h-8 sm:h-8 text-indigo-500" /> 설정 및 관리</h2>
               <button onClick={() => setIsMenuConfigOpen(false)} className="hover:text-rose-500 transition-colors"><X className="h-6 w-6 sm:h-8 sm:h-8" /></button>
             </div>
+            
+            {/* 메뉴 관리 영역 */}
             <div className="flex-1 overflow-y-auto space-y-3 sm:space-y-4 mb-6 scrollbar-thin pr-2">
+              <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Menu Configuration</h3>
               {menuCatalog.map(m => (
                 <div key={m.id} className="flex flex-wrap sm:flex-nowrap gap-3 bg-slate-950 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800 shadow-lg transition-all">
                   <input type="text" value={m.name} onChange={(e) => updateDB(null, menuCatalog.map(item => item.id === m.id ? {...item, name: e.target.value} : item))} className="flex-1 min-w-[120px] bg-slate-900 border-none rounded-lg px-3 py-2 font-bold text-white text-sm sm:text-base outline-none focus:ring-1 ring-indigo-600" />
@@ -420,7 +449,16 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <button onClick={() => updateDB(null, [...menuCatalog, {id: `m${Date.now()}`, name: '신규 메뉴', price: 0}])} className="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2"><Plus className="h-5 w-5" /> 추가</button>
+
+            {/* 설정 하단 버튼 영역 (메뉴 추가 & 전체 초기화) */}
+            <div className="flex flex-col gap-3">
+              <button onClick={() => updateDB(null, [...menuCatalog, {id: `m${Date.now()}`, name: '신규 메뉴', price: 0}])} className="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
+                <Plus className="h-5 w-5" /> 메뉴 추가하기
+              </button>
+              <button onClick={handleResetAllTables} className="w-full py-4 sm:py-5 bg-rose-600/10 hover:bg-rose-600 border border-rose-600/30 text-rose-500 hover:text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
+                <Trash2 className="h-5 w-5" /> 모든 테이블 초기화
+              </button>
+            </div>
           </div>
         </div>
       )}
