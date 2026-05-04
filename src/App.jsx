@@ -6,20 +6,7 @@ import {
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
-
-// --- 1. Firebase 설정 ---
-const firebaseConfig = {
-  apiKey: "AIzaSyAnQxnCowRJCcV9RVhqDadqAj9NX_gvSXc",
-  authDomain: "infosys-pos.firebaseapp.com",
-  projectId: "infosys-pos",
-  storageBucket: "infosys-pos.firebasestorage.app",
-  messagingSenderId: "1088430025984",
-  appId: "1:1088430025984:web:7d152276875250d41717e5",
-  measurementId: "G-42VDDVZ90W"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+import {db} from "./firebase"
 
 const SYSTEM_CONFIG = {
   TOTAL_TABLES: 16,
