@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
-import {db} from "./firebase"
+import { db } from "./firebase";
 
 const SYSTEM_CONFIG = {
   TOTAL_TABLES: 35,
@@ -14,15 +14,23 @@ const SYSTEM_CONFIG = {
   MERGE_BONUS_MIN: 30,         
 };
 
+// 2. 카테고리가 분류된 새로운 INITIAL_MENU 구성
 const INITIAL_MENU = [
-  { id: 'm1', name: '참이슬', price: 5000 },
-  { id: 'm2', name: '삼구삼진어묵탕', price: 18000 },
-  { id: 'm3', name: '야구공 후라이 스팸 주먹밥', price: 20000 },
-  { id: 'm4', name: '치킨 롯데리야끼 자이언츠 볶음밥', price: 15000 },
-  { id: 'm5', name: 'LGㅔ육 트윈스', price: 15000 },
-  { id: 'm6', name: '감튀 하나 익을쓰', price: 15000 },
-  { id: 'm7', name: '후르츠 황도 따다 두 손 베어스', price: 15000 },
-  { id: 'm8', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 15000 },
+  // 메인 메뉴
+  { id: 'm1', category: 'main', name: '삼구삼진어묵탕', price: 18000 },
+  { id: 'm2', category: 'main', name: '야구공 후라이 스팸 주먹밥', price: 20000 },
+  { id: 'm3', category: 'main', name: '치킨 롯데리야끼 자이언츠 볶음밥', price: 15000 },
+  { id: 'm4', category: 'main', name: 'LGㅔ육 트윈스', price: 15000 },
+  
+  // 사이드 메뉴
+  { id: 'm5', category: 'side', name: '감튀 하나 익을쓰', price: 15000 },
+  { id: 'm6', category: 'side', name: '후르츠 황도 따다 두 손 베어스', price: 15000 },
+  { id: 'm7', category: 'side', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 15000 },
+  { id: 'm8', category: 'side', name: '마카로니 추가', price: 2000 },
+  
+  // 음료
+  { id: 'm9', category: 'drink', name: '콜라', price: 2000 },
+  { id: 'm10', category: 'drink', name: '사이다', price: 2000 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
@@ -198,7 +206,7 @@ export default function App() {
     setIsMergeMode(false);
   };
 
-  // --- 🚨 추가된 기능: 전체 테이블 초기화 로직 ---
+  // 전체 테이블 초기화 로직
   const handleResetAllTables = () => {
     setDialogConfig({
       isOpen: true,
@@ -239,7 +247,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500/30 overflow-x-hidden">
-      {/* 네비게이션: 모바일 최적화 */}
+      {/* 네비게이션 */}
       <nav className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-30 shadow-2xl">
         <div className="max-w-[1800px] mx-auto flex flex-wrap justify-between items-center gap-3">
           <div className="flex items-center gap-3 sm:gap-8">
@@ -262,7 +270,11 @@ export default function App() {
               <Settings className="h-4 w-4 sm:h-5 sm:h-5" />
             </button>
             <div className="text-right cursor-default">
-              <div className="text-sm sm:text-xl font-mono text-indigo-400 font-bold tracking-tighter leading-none">
+              {/* 1. 실시간 시간 영역에 날짜 추가 */}
+              <div className="text-xs sm:text-sm font-mono text-slate-400 font-bold tracking-tighter">
+                {new Date(currentTime).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' })}
+              </div>
+              <div className="text-sm sm:text-xl font-mono text-indigo-400 font-bold tracking-tighter leading-none mt-1">
                 {new Date(currentTime).toLocaleTimeString('ko-KR', { hour12: false })}
               </div>
             </div>
@@ -303,7 +315,7 @@ export default function App() {
             })}
           </div>
         ) : (
-          /* 주방 현황: 모바일 뷰 최적화 (합계 탭 상단 배치 유도 가능) */
+          /* 주방 현황 */
           <div className="flex flex-col lg:flex-row gap-4 sm:gap-8 animate-in fade-in duration-300">
             <div className="flex-1 order-2 lg:order-1">
               <h2 className="text-lg sm:text-xl font-black mb-4 sm:mb-6 flex items-center gap-2 px-1"><ChefHat className="h-5 w-5 text-emerald-500" /> 실시간 조리 대기열</h2>
@@ -349,15 +361,30 @@ export default function App() {
               <button onClick={() => setSelectedTableId(null)} className="p-2 sm:p-3 bg-slate-800 hover:bg-rose-500/20 hover:text-rose-400 rounded-full transition-all"><X className="h-6 w-6 sm:h-8 sm:h-8" /></button>
             </div>
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-              <div className="flex-1 p-4 sm:p-8 overflow-y-auto bg-slate-950/50">
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
-                  {menuCatalog.map(menu => (
-                    <button key={menu.id} onClick={() => processOrderAddition(menu)} className="bg-slate-900 p-3 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-800 text-left hover:border-indigo-500 transition-all active:scale-95 flex flex-col justify-between h-24 sm:h-32">
-                      <div className="font-black text-sm sm:text-base text-slate-200 leading-tight line-clamp-2">{menu.name}</div>
-                      <div className="text-indigo-400 font-black text-xs sm:text-base">{formatCurrency(menu.price)}</div>
-                    </button>
-                  ))}
-                </div>
+              <div className="flex-1 p-4 sm:p-8 overflow-y-auto bg-slate-950/50 space-y-8 scrollbar-thin">
+                
+                {/* 2. 카테고리별로 메뉴 영역 분리 */}
+                {['main', 'side', 'drink'].map((catKey) => {
+                  const items = menuCatalog.filter(m => (m.category || 'main') === catKey);
+                  if (items.length === 0) return null;
+                  
+                  const catName = catKey === 'main' ? '🔥 메인 메뉴' : catKey === 'side' ? '🍟 사이드 메뉴' : '🥤 음료';
+                  
+                  return (
+                    <div key={catKey}>
+                      <h3 className="text-sm font-black text-slate-400 mb-3">{catName}</h3>
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
+                        {items.map(menu => (
+                          <button key={menu.id} onClick={() => processOrderAddition(menu)} className="bg-slate-900 p-3 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-800 text-left hover:border-indigo-500 transition-all active:scale-95 flex flex-col justify-between h-24 sm:h-32 shadow-sm">
+                            <div className="font-black text-sm sm:text-base text-slate-200 leading-tight line-clamp-2">{menu.name}</div>
+                            <div className="text-indigo-400 font-black text-xs sm:text-base">{formatCurrency(menu.price)}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+
               </div>
               <div className="w-full md:w-[400px] lg:w-[420px] bg-slate-900 p-5 sm:p-8 flex flex-col border-t md:border-t-0 md:border-l border-slate-800 shadow-2xl">
                 <h3 className="text-[10px] font-black text-slate-600 uppercase mb-3 sm:mb-6 tracking-widest">ORDER LIST</h3>
@@ -422,7 +449,7 @@ export default function App() {
       {/* 모달: 시스템 설정 관리 (메뉴 관리 및 전체 초기화) */}
       {isMenuConfigOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-0 xs:p-4 z-50 animate-in zoom-in-95 duration-200">
-          <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-2xl border-0 xs:border border-slate-800 p-6 sm:p-10 flex flex-col shadow-2xl">
+          <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-3xl border-0 xs:border border-slate-800 p-6 sm:p-10 flex flex-col shadow-2xl">
             <div className="flex justify-between items-center mb-6 sm:mb-8 border-b border-slate-800 pb-4 sm:pb-6">
               <h2 className="text-xl sm:text-3xl font-black flex items-center gap-3"><Settings className="h-6 w-6 sm:h-8 sm:h-8 text-indigo-500" /> 설정 및 관리</h2>
               <button onClick={() => setIsMenuConfigOpen(false)} className="hover:text-rose-500 transition-colors"><X className="h-6 w-6 sm:h-8 sm:h-8" /></button>
@@ -432,17 +459,31 @@ export default function App() {
             <div className="flex-1 overflow-y-auto space-y-3 sm:space-y-4 mb-6 scrollbar-thin pr-2">
               <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Menu Configuration</h3>
               {menuCatalog.map(m => (
-                <div key={m.id} className="flex flex-wrap sm:flex-nowrap gap-3 bg-slate-950 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800 shadow-lg transition-all">
+                <div key={m.id} className="flex flex-wrap sm:flex-nowrap gap-3 bg-slate-950 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800 shadow-lg transition-all items-center">
+                  
+                  {/* 카테고리 선택 드롭다운 추가 */}
+                  <select 
+                    value={m.category || 'main'} 
+                    onChange={(e) => updateDB(null, menuCatalog.map(item => item.id === m.id ? {...item, category: e.target.value} : item))} 
+                    className="bg-slate-800 border-none rounded-lg px-3 py-2.5 font-bold text-slate-300 text-xs sm:text-sm outline-none focus:ring-1 ring-indigo-600 appearance-none"
+                  >
+                    <option value="main">메인</option>
+                    <option value="side">사이드</option>
+                    <option value="drink">음료</option>
+                  </select>
+
                   <input type="text" value={m.name} onChange={(e) => updateDB(null, menuCatalog.map(item => item.id === m.id ? {...item, name: e.target.value} : item))} className="flex-1 min-w-[120px] bg-slate-900 border-none rounded-lg px-3 py-2 font-bold text-white text-sm sm:text-base outline-none focus:ring-1 ring-indigo-600" />
+                  
                   <input type="number" value={m.price} onChange={(e) => updateDB(null, menuCatalog.map(item => item.id === m.id ? {...item, price: Number(e.target.value)} : item))} className="w-24 sm:w-32 bg-slate-900 border-none rounded-lg px-3 py-2 font-bold text-emerald-400 text-right text-sm sm:text-base outline-none focus:ring-1 ring-indigo-600" />
+                  
                   <button onClick={() => updateDB(null, menuCatalog.filter(item => item.id !== m.id))} className="p-2 sm:p-3 text-slate-700 hover:text-rose-500"><Trash2 className="h-5 w-5" /></button>
                 </div>
               ))}
             </div>
 
-            {/* 설정 하단 버튼 영역 (메뉴 추가 & 전체 초기화) */}
+            {/* 설정 하단 버튼 영역 */}
             <div className="flex flex-col gap-3">
-              <button onClick={() => updateDB(null, [...menuCatalog, {id: `m${Date.now()}`, name: '신규 메뉴', price: 0}])} className="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
+              <button onClick={() => updateDB(null, [...menuCatalog, {id: `m${Date.now()}`, name: '신규 메뉴', price: 0, category: 'main'}])} className="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
                 <Plus className="h-5 w-5" /> 메뉴 추가하기
               </button>
               <button onClick={handleResetAllTables} className="w-full py-4 sm:py-5 bg-rose-600/10 hover:bg-rose-600 border border-rose-600/30 text-rose-500 hover:text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
@@ -453,7 +494,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 다이얼로그 (중앙 정렬 유지) */}
+      {/* 다이얼로그 */}
       {dialogConfig.isOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
           <div className="bg-slate-900 p-6 sm:p-10 rounded-2xl sm:rounded-3xl w-full max-w-sm border border-slate-800 shadow-2xl text-center">
@@ -475,6 +516,16 @@ export default function App() {
         .scrollbar-thin::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
         @keyframes bounce-subtle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
         .animate-bounce { animation: bounce-subtle 2s infinite; }
+        
+        /* 3. 가격 입력 시 숫자 옆에 나타나는 상하 버튼(Spinner) 숨김 처리 CSS */
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
       `}} />
     </div>
   );
