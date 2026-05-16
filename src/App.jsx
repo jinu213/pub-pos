@@ -9,7 +9,7 @@ import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
 import {db} from "./firebase"
 
 const SYSTEM_CONFIG = {
-  TOTAL_TABLES: 16,
+  TOTAL_TABLES: 35,
   DEFAULT_TIME_LIMIT_MIN: 120, 
   MERGE_BONUS_MIN: 30,         
 };
