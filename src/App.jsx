@@ -18,7 +18,7 @@ const SYSTEM_CONFIG = {
 const INITIAL_MENU = [
   // 메인 메뉴
   { id: 'm1', category: 'main', name: '삼구삼진어묵탕', price: 18000 },
-  { id: 'm2', category: 'main', name: '야구공 후라이 스팸 주먹밥', price: 20000 },
+  { id: 'm2', category: 'main', name: '계란 후라이온즈 스팸 주먹밥', price: 20000 },
   { id: 'm3', category: 'main', name: '치킨 롯데리야끼 자이언츠 볶음밥', price: 15000 },
   { id: 'm4', category: 'main', name: 'LGㅔ육 트윈스', price: 15000 },
   
