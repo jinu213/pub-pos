@@ -17,9 +17,13 @@ const SYSTEM_CONFIG = {
 const INITIAL_MENU = [
   { id: 'm1', name: '참이슬', price: 5000 },
   { id: 'm2', name: '카스', price: 5000 },
-  { id: 'm3', name: '모듬어묵탕', price: 18000 },
-  { id: 'm4', name: '순살 가라아게', price: 20000 },
-  { id: 'm5', name: '과일화채', price: 15000 },
+  { id: 'm3', name: '삼구삼진어묵탕', price: 18000 },
+  { id: 'm4', name: '야구공 후라이 스팸 주먹밥', price: 20000 },
+  { id: 'm5', name: '치킨 롯데리야끼 자이언츠 볶음밥', price: 15000 },
+  { id: 'm6', name: 'LGㅔ육 트윈스', price: 15000 },
+  { id: 'm7', name: '감튀 하나 익을쓰', price: 15000 },
+  { id: 'm8', name: '후르츠 황도 따다 두 손 베어스', price: 15000 },
+  { id: 'm9', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 15000 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
