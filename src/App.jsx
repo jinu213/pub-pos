@@ -14,7 +14,6 @@ const SYSTEM_CONFIG = {
   MERGE_BONUS_MIN: 30,         
 };
 
-// 2. 카테고리가 분류된 새로운 INITIAL_MENU 구성
 const INITIAL_MENU = [
   // 메인 메뉴
   { id: 'm1', category: 'main', name: '삼구삼진어묵탕', price: 18000 },
@@ -29,8 +28,10 @@ const INITIAL_MENU = [
   { id: 'm8', category: 'side', name: '마카로니 추가', price: 2000 },
   
   // 음료
-  { id: 'm9', category: 'drink', name: '콜라', price: 2000 },
-  { id: 'm10', category: 'drink', name: '사이다', price: 2000 },
+  { id: 'm9', category: 'drink', name: '참이슬', price: 5000 },
+  { id: 'm10', category: 'drink', name: '카스', price: 5000 },
+  { id: 'm11', category: 'drink', name: '콜라', price: 2000 },
+  { id: 'm12', category: 'drink', name: '사이다', price: 2000 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
@@ -41,6 +42,57 @@ const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i)
   startTime: null, 
   timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN,
 }));
+
+// 🚨 추가된 컴포넌트: 한글 자음/모음 분리 방지를 위한 개별 메뉴 관리 로컬 상태 컴포넌트
+function MenuConfigItem({ item, onUpdate, onDelete }) {
+  const [localName, setLocalName] = useState(item.name);
+  const [localPrice, setLocalPrice] = useState(item.price);
+
+  // 외부 데이터베이스 값 동기화
+  useEffect(() => {
+    setLocalName(item.name);
+    setLocalPrice(item.price);
+  }, [item.name, item.price]);
+
+  // 입력 칸에서 포커스가 벗어날 때(onBlur)만 데이터베이스 업데이트 실행
+  const handleBlur = () => {
+    if (localName !== item.name || localPrice !== item.price) {
+      onUpdate({ ...item, name: localName, price: localPrice });
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap sm:flex-nowrap gap-3 bg-slate-950 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800 shadow-lg transition-all items-center">
+      <select 
+        value={item.category || 'main'} 
+        onChange={(e) => onUpdate({ ...item, category: e.target.value })} 
+        className="bg-slate-800 border-none rounded-lg px-3 py-2.5 font-bold text-slate-300 text-xs sm:text-sm outline-none focus:ring-1 ring-indigo-600 appearance-none"
+      >
+        <option value="main">메인</option>
+        <option value="side">사이드</option>
+        <option value="drink">음료</option>
+      </select>
+
+      <input 
+        type="text" 
+        value={localName} 
+        onChange={(e) => setLocalName(e.target.value)} 
+        onBlur={handleBlur}
+        className="flex-1 min-w-[120px] bg-slate-900 border-none rounded-lg px-3 py-2 font-bold text-white text-sm sm:text-base outline-none focus:ring-1 ring-indigo-600" 
+      />
+      
+      <input 
+        type="number" 
+        value={localPrice} 
+        onChange={(e) => setLocalPrice(Number(e.target.value))} 
+        onBlur={handleBlur}
+        className="w-24 sm:w-32 bg-slate-900 border-none rounded-lg px-3 py-2 font-bold text-emerald-400 text-right text-sm sm:text-base outline-none focus:ring-1 ring-indigo-600" 
+      />
+      
+      <button onClick={onDelete} className="p-2 sm:p-3 text-slate-700 hover:text-rose-500"><Trash2 className="h-5 w-5" /></button>
+    </div>
+  );
+}
 
 export default function App() {
   const [viewMode, setViewMode] = useState('pos');
@@ -96,7 +148,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [dialogConfig.isOpen, isMergeMode, isMenuConfigOpen, selectedTableId]);
 
-  // 주방 데이터 집계 (개별 카드 및 메뉴별 총량)
+  // 주방 데이터 집계
   const kitchenData = useMemo(() => {
     const cards = [];
     const summary = {};
@@ -166,7 +218,6 @@ export default function App() {
     updateDB(newTables, null);
   };
 
-  // --- 합석 실행 로직 ---
   const executeMerge = (sourceId) => {
     const newTables = [...tables];
     const targetIdx = newTables.findIndex(t => t.id === selectedTableId);
@@ -206,7 +257,6 @@ export default function App() {
     setIsMergeMode(false);
   };
 
-  // 전체 테이블 초기화 로직
   const handleResetAllTables = () => {
     setDialogConfig({
       isOpen: true,
@@ -215,7 +265,7 @@ export default function App() {
       onConfirm: () => {
         updateDB(INITIAL_TABLES, null);
         setDialogConfig(prev => ({ ...prev, isOpen: false }));
-        setIsMenuConfigOpen(false); // 설정 창 닫기
+        setIsMenuConfigOpen(false);
       }
     });
   };
@@ -235,7 +285,6 @@ export default function App() {
     };
   };
 
-  // 합석 가능한 테이블 필터링
   const availableMergeTargets = useMemo(() => tables.filter(t => t.status === 'occupied' && t.id !== selectedTableId), [tables, selectedTableId]);
 
   if (!isDbReady) return (
@@ -247,7 +296,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500/30 overflow-x-hidden">
-      {/* 네비게이션 */}
       <nav className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-30 shadow-2xl">
         <div className="max-w-[1800px] mx-auto flex flex-wrap justify-between items-center gap-3">
           <div className="flex items-center gap-3 sm:gap-8">
@@ -270,7 +318,6 @@ export default function App() {
               <Settings className="h-4 w-4 sm:h-5 sm:h-5" />
             </button>
             <div className="text-right cursor-default">
-              {/* 1. 실시간 시간 영역에 날짜 추가 */}
               <div className="text-xs sm:text-sm font-mono text-slate-400 font-bold tracking-tighter">
                 {new Date(currentTime).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' })}
               </div>
@@ -315,7 +362,6 @@ export default function App() {
             })}
           </div>
         ) : (
-          /* 주방 현황 */
           <div className="flex flex-col lg:flex-row gap-4 sm:gap-8 animate-in fade-in duration-300">
             <div className="flex-1 order-2 lg:order-1">
               <h2 className="text-lg sm:text-xl font-black mb-4 sm:mb-6 flex items-center gap-2 px-1"><ChefHat className="h-5 w-5 text-emerald-500" /> 실시간 조리 대기열</h2>
@@ -363,12 +409,10 @@ export default function App() {
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
               <div className="flex-1 p-4 sm:p-8 overflow-y-auto bg-slate-950/50 space-y-8 scrollbar-thin">
                 
-                {/* 2. 카테고리별로 메뉴 영역 분리 */}
                 {['main', 'side', 'drink'].map((catKey) => {
                   const items = menuCatalog.filter(m => (m.category || 'main') === catKey);
                   if (items.length === 0) return null;
-                  
-                  const catName = catKey === 'main' ? '메인 메뉴' : catKey === 'side' ? '사이드 메뉴' : '음료';
+                  const catName = catKey === 'main' ? '🔥 메인 메뉴' : catKey === 'side' ? '🍟 사이드 메뉴' : '🥤 음료';
                   
                   return (
                     <div key={catKey}>
@@ -446,7 +490,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 모달: 시스템 설정 관리 (메뉴 관리 및 전체 초기화) */}
+      {/* 모달: 시스템 설정 관리 */}
       {isMenuConfigOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-0 xs:p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-3xl border-0 xs:border border-slate-800 p-6 sm:p-10 flex flex-col shadow-2xl">
@@ -455,29 +499,16 @@ export default function App() {
               <button onClick={() => setIsMenuConfigOpen(false)} className="hover:text-rose-500 transition-colors"><X className="h-6 w-6 sm:h-8 sm:h-8" /></button>
             </div>
             
-            {/* 메뉴 관리 영역 */}
+            {/* 메뉴 관리 영역 (변경된 MenuConfigItem 적용) */}
             <div className="flex-1 overflow-y-auto space-y-3 sm:space-y-4 mb-6 scrollbar-thin pr-2">
               <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Menu Configuration</h3>
               {menuCatalog.map(m => (
-                <div key={m.id} className="flex flex-wrap sm:flex-nowrap gap-3 bg-slate-950 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800 shadow-lg transition-all items-center">
-                  
-                  {/* 카테고리 선택 드롭다운 추가 */}
-                  <select 
-                    value={m.category || 'main'} 
-                    onChange={(e) => updateDB(null, menuCatalog.map(item => item.id === m.id ? {...item, category: e.target.value} : item))} 
-                    className="bg-slate-800 border-none rounded-lg px-3 py-2.5 font-bold text-slate-300 text-xs sm:text-sm outline-none focus:ring-1 ring-indigo-600 appearance-none"
-                  >
-                    <option value="main">메인</option>
-                    <option value="side">사이드</option>
-                    <option value="drink">음료</option>
-                  </select>
-
-                  <input type="text" value={m.name} onChange={(e) => updateDB(null, menuCatalog.map(item => item.id === m.id ? {...item, name: e.target.value} : item))} className="flex-1 min-w-[120px] bg-slate-900 border-none rounded-lg px-3 py-2 font-bold text-white text-sm sm:text-base outline-none focus:ring-1 ring-indigo-600" />
-                  
-                  <input type="number" value={m.price} onChange={(e) => updateDB(null, menuCatalog.map(item => item.id === m.id ? {...item, price: Number(e.target.value)} : item))} className="w-24 sm:w-32 bg-slate-900 border-none rounded-lg px-3 py-2 font-bold text-emerald-400 text-right text-sm sm:text-base outline-none focus:ring-1 ring-indigo-600" />
-                  
-                  <button onClick={() => updateDB(null, menuCatalog.filter(item => item.id !== m.id))} className="p-2 sm:p-3 text-slate-700 hover:text-rose-500"><Trash2 className="h-5 w-5" /></button>
-                </div>
+                <MenuConfigItem 
+                  key={m.id} 
+                  item={m} 
+                  onUpdate={(updatedItem) => updateDB(null, menuCatalog.map(item => item.id === m.id ? updatedItem : item))} 
+                  onDelete={() => updateDB(null, menuCatalog.filter(item => item.id !== m.id))} 
+                />
               ))}
             </div>
 
@@ -517,7 +548,6 @@ export default function App() {
         @keyframes bounce-subtle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
         .animate-bounce { animation: bounce-subtle 2s infinite; }
         
-        /* 3. 가격 입력 시 숫자 옆에 나타나는 상하 버튼(Spinner) 숨김 처리 CSS */
         input[type="number"]::-webkit-outer-spin-button,
         input[type="number"]::-webkit-inner-spin-button {
             -webkit-appearance: none;
