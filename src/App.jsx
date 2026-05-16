@@ -368,7 +368,7 @@ export default function App() {
                   const items = menuCatalog.filter(m => (m.category || 'main') === catKey);
                   if (items.length === 0) return null;
                   
-                  const catName = catKey === 'main' ? '🔥 메인 메뉴' : catKey === 'side' ? '🍟 사이드 메뉴' : '🥤 음료';
+                  const catName = catKey === 'main' ? '메인 메뉴' : catKey === 'side' ? '사이드 메뉴' : '음료';
                   
                   return (
                     <div key={catKey}>
