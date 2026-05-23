@@ -9,26 +9,28 @@ import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
 const SYSTEM_CONFIG = {
-  TOTAL_TABLES: 38, // 1. 테이블 수 38개로 설정
+  TOTAL_TABLES: 38,
   DEFAULT_TIME_LIMIT_MIN: 120, 
   MERGE_BONUS_MIN: 30,         
 };
 
 const INITIAL_MENU = [
-  // 메인 메뉴 (요청하신 순서 및 가격 반영)
+  // 메인 메뉴
   { id: 'm1', category: 'main', name: 'LGㅔ육 트윈스', price: 21000 },
   { id: 'm2', category: 'main', name: '계란 후라이온즈 스팸 주먹밥', price: 19000 },
   { id: 'm3', category: 'main', name: '삼구삼진어묵탕', price: 17000 },
   { id: 'm4', category: 'main', name: '치킨롯데리야끼 볶음밥', price: 16000 },
   
-  // 사이드 메뉴 및 음료 (요청하신 순서 및 가격 반영)
+  // 사이드 메뉴
   { id: 'm5', category: 'side', name: '감튀 하나 익을쓰', price: 9000 },
   { id: 'm6', category: 'side', name: '황도따다 두손베어스', price: 9000 },
   { id: 'm7', category: 'side', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 10000 },
+  { id: 'm11', category: 'side', name: '마카로니 과자추가', price: 1000 },
+
+  // 음료
   { id: 'm8', category: 'drink', name: '콜라', price: 2000 },
   { id: 'm9', category: 'drink', name: '사이다', price: 2000 },
   { id: 'm10', category: 'drink', name: '생수', price: 2000 },
-  { id: 'm11', category: 'side', name: '마카로니 과자추가', price: 1000 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
@@ -102,7 +104,6 @@ export default function App() {
   const [isMenuConfigOpen, setIsMenuConfigOpen] = useState(false);
   const [dialogConfig, setDialogConfig] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
-  // Firestore 실시간 동기화
   useEffect(() => {
     const docRef = doc(db, "pos_data", "main_status");
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
@@ -133,7 +134,6 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // ESC 단축키 제어
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
@@ -147,7 +147,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [dialogConfig.isOpen, isMergeMode, isMenuConfigOpen, selectedTableId]);
 
-  // 주방 데이터 집계
   const kitchenData = useMemo(() => {
     const cards = [];
     const summary = {};
@@ -204,7 +203,6 @@ export default function App() {
     };
 
     const newLogs = [newLog, ...(completedLogs || [])].slice(0, 200);
-
     updateDB(newTables, null, newLogs);
   };
 
@@ -277,7 +275,6 @@ export default function App() {
     setIsMergeMode(false);
   };
 
-  // 🔥 수정됨: 초기화 시 로컬 소스코드의 최신 INITIAL_MENU와 38개 테이블 설정을 DB에 강제 Overwrite 하도록 변경
   const handleResetAllTables = () => {
     setDialogConfig({
       isOpen: true,
@@ -328,7 +325,6 @@ export default function App() {
               <button onClick={() => setViewMode('pos')} className={`flex items-center gap-1.5 px-3 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${viewMode === 'pos' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
                 <LayoutDashboard className="h-3.5 w-3.5 sm:h-4 sm:h-4" /> 홀
               </button>
-              {/* 2. 주방 탭 진입 시 무조건 조리 대기열(queue)이 먼저 뜨도록 고정 */}
               <button onClick={() => { setViewMode('kitchen'); setKitchenTab('queue'); }} className={`flex items-center gap-1.5 px-3 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${viewMode === 'kitchen' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
                 <ChefHat className="h-3.5 w-3.5 sm:h-4 sm:h-4" /> 주방
                 {kitchenData.cards.length > 0 && <span className="ml-1 bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">{kitchenData.cards.length}</span>}
@@ -353,29 +349,31 @@ export default function App() {
 
       <main className="p-3 sm:p-6 max-w-[1800px] mx-auto">
         {viewMode === 'pos' ? (
-          <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
+          /* 🚨 수정됨: PC 화면(xl 기준)에서 가로 6줄(xl:grid-cols-6) 배치 및 간격(gap-2 sm:gap-4) 조정 */
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-4">
             {tables.map(table => {
               const { remaining, isOver } = computeTime(table.startTime, table.timeLimit, currentTime);
               const isOcc = table.status === 'occupied';
               return (
-                <button key={table.id} onClick={() => setSelectedTableId(table.id)} className={`group relative flex flex-col p-4 sm:p-5 rounded-2xl border-2 transition-all duration-300 active:scale-95 text-left ${!isOcc ? 'bg-slate-900/40 border-slate-800 hover:border-indigo-500/30' : 'bg-slate-900 border-indigo-600 shadow-indigo-600/10 shadow-xl'}`}>
-                  <div className="flex justify-between items-start w-full mb-3 sm:mb-4">
-                    <span className={`text-base sm:text-lg font-black transition-colors ${isOcc ? 'text-white' : 'text-slate-600'}`}>{table.label}</span>
-                    {isOcc && <span className={`px-2 py-0.5 rounded text-[10px] sm:text-xs font-mono font-bold ${isOver ? 'text-rose-400 bg-rose-500/10' : 'text-indigo-400 bg-indigo-500/10'}`}>{remaining}</span>}
+                /* 🚨 수정됨: 6열 배치에 맞게 내부 패딩(p-3 sm:p-4) 소폭 축소 */
+                <button key={table.id} onClick={() => setSelectedTableId(table.id)} className={`group relative flex flex-col p-3 sm:p-4 rounded-xl sm:rounded-2xl border-2 transition-all duration-300 active:scale-95 text-left ${!isOcc ? 'bg-slate-900/40 border-slate-800 hover:border-indigo-500/30' : 'bg-slate-900 border-indigo-600 shadow-indigo-600/10 shadow-xl'}`}>
+                  <div className="flex justify-between items-start w-full mb-2 sm:mb-3">
+                    <span className={`text-sm sm:text-base font-black transition-colors ${isOcc ? 'text-white' : 'text-slate-600'}`}>{table.label}</span>
+                    {isOcc && <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${isOver ? 'text-rose-400 bg-rose-500/10' : 'text-indigo-400 bg-indigo-500/10'}`}>{remaining}</span>}
                   </div>
-                  {!isOcc ? <div className="flex-1 flex flex-col items-center justify-center py-6 opacity-20"><Users className="h-8 w-8 mb-2" /><span className="text-[10px] font-bold uppercase tracking-widest">Available</span></div> : (
+                  {!isOcc ? <div className="flex-1 flex flex-col items-center justify-center py-4 opacity-20"><Users className="h-6 w-6 mb-2" /><span className="text-[9px] font-bold uppercase tracking-widest">Available</span></div> : (
                     <div className="flex-1 flex flex-col w-full">
-                      <div className="space-y-1 mb-3 sm:mb-4 max-h-24 sm:max-h-32 overflow-y-auto scrollbar-thin">
+                      <div className="space-y-1 mb-2 sm:mb-3 max-h-20 sm:max-h-24 overflow-y-auto scrollbar-thin">
                         {table.orders.map(o => (
-                          <div key={o.id} className="flex justify-between text-xs sm:text-sm items-center py-0.5 border-b border-slate-800 last:border-0">
+                          <div key={o.id} className="flex justify-between text-[11px] sm:text-xs items-center py-0.5 border-b border-slate-800 last:border-0">
                             <span className="text-slate-400 font-medium truncate pr-2">{o.name}</span>
                             <span className={`font-bold transition-colors ${o.prepared >= o.quantity ? 'text-emerald-500' : 'text-white'}`}>{o.prepared || 0}/{o.quantity}</span>
                           </div>
                         ))}
                       </div>
-                      <div className="mt-auto pt-3 border-t border-slate-800 flex justify-between items-baseline">
+                      <div className="mt-auto pt-2 border-t border-slate-800 flex justify-between items-baseline">
                         <span className="text-[9px] text-slate-600 font-black tracking-widest">TOTAL</span>
-                        <span className="text-lg sm:text-xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(table.orders))}</span>
+                        <span className="text-base sm:text-lg font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(table.orders))}</span>
                       </div>
                     </div>
                   )}
@@ -407,7 +405,6 @@ export default function App() {
                   {kitchenData.cards.map((item) => (
                     <div key={item.uniqueKey} className="bg-slate-900 border-2 border-slate-800 rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col">
                       <div className="bg-slate-800/80 p-3 sm:p-4 border-b border-slate-800 flex justify-between items-center">
-                        {/* 3. 몇 번째 테이블인지 인지가 즉각 가능하도록 뱃지 크기 및 가독성 대폭 강화 */}
                         <div className="bg-indigo-600 text-white text-sm sm:text-base font-black px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl shadow-lg ring-2 ring-indigo-500/50 flex items-center gap-1.5">
                           TABLE <span className="text-xl sm:text-2xl">{item.tableId}</span>
                         </div>
@@ -466,13 +463,14 @@ export default function App() {
 
       {selectedTableId && tables.find(t => t.id === selectedTableId) && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-0 xs:p-4 z-40 animate-in fade-in duration-200">
-          <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-5xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
+          {/* 🚨 수정됨: 메뉴 목록이 넓게 펼쳐지도록 모달 최대 너비를 max-w-5xl에서 max-w-6xl로 확장 */}
+          <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-6xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
             <div className="p-5 sm:p-8 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
               <h2 className="text-2xl sm:text-3xl font-black tracking-tighter text-white">{tables.find(t => t.id === selectedTableId).label}</h2>
               <button onClick={() => setSelectedTableId(null)} className="p-2 sm:p-3 bg-slate-800 hover:bg-rose-500/20 hover:text-rose-400 rounded-full transition-all"><X className="h-6 w-6 sm:h-8 sm:h-8" /></button>
             </div>
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-              <div className="flex-1 p-4 sm:p-8 overflow-y-auto bg-slate-950/50 space-y-8 scrollbar-thin">
+              <div className="flex-1 p-3 sm:p-5 overflow-y-auto bg-slate-950/50 space-y-4 sm:space-y-6 scrollbar-thin">
                 
                 {['main', 'side', 'drink'].map((catKey) => {
                   const items = menuCatalog.filter(m => (m.category || 'main') === catKey);
@@ -482,11 +480,13 @@ export default function App() {
                   return (
                     <div key={catKey}>
                       <h3 className="text-sm font-black text-slate-400 mb-3">{catName}</h3>
-                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
+                      {/* 🚨 수정됨: 더 조밀한 배치를 위해 grid-cols 확장 (lg:grid-cols-4 반영) */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                         {items.map(menu => (
-                          <button key={menu.id} onClick={() => processOrderAddition(menu)} className="bg-slate-900 p-3 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-800 text-left hover:border-indigo-500 transition-all active:scale-95 flex flex-col justify-between h-24 sm:h-32 shadow-sm">
-                            <div className="font-black text-sm sm:text-base text-slate-200 leading-tight line-clamp-2">{menu.name}</div>
-                            <div className="text-indigo-400 font-black text-xs sm:text-base">{formatCurrency(menu.price)}</div>
+                          /* 🚨 수정됨: 메뉴 버튼 높이 축소(h-16 sm:h-20), 내부 폰트 사이즈 하향 조정 */
+                          <button key={menu.id} onClick={() => processOrderAddition(menu)} className="bg-slate-900 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-slate-800 text-left hover:border-indigo-500 transition-all active:scale-95 flex flex-col justify-between h-16 sm:h-20 shadow-sm">
+                            <div className="font-black text-xs sm:text-sm text-slate-200 leading-tight line-clamp-2">{menu.name}</div>
+                            <div className="text-indigo-400 font-black text-[10px] sm:text-xs">{formatCurrency(menu.price)}</div>
                           </button>
                         ))}
                       </div>
@@ -579,7 +579,6 @@ export default function App() {
               <button onClick={() => updateDB(null, [...menuCatalog, {id: `m${Date.now()}`, name: '신규 메뉴', price: 0, category: 'main'}])} className="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
                 <Plus className="h-5 w-5" /> 메뉴 추가하기
               </button>
-              {/* 강제 Overwrite 동기화 기능이 주입된 초기화 버튼 */}
               <button onClick={handleResetAllTables} className="w-full py-4 sm:py-5 bg-rose-600/10 hover:bg-rose-600 border border-rose-600/30 text-rose-500 hover:text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
                 <Trash2 className="h-5 w-5" /> 모든 테이블 초기화
               </button>
