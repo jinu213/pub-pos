@@ -9,29 +9,27 @@ import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
 const SYSTEM_CONFIG = {
-  TOTAL_TABLES: 35,
+  TOTAL_TABLES: 38, 
   DEFAULT_TIME_LIMIT_MIN: 120, 
   MERGE_BONUS_MIN: 30,         
 };
 
 const INITIAL_MENU = [
   // 메인 메뉴
-  { id: 'm1', category: 'main', name: '삼구삼진어묵탕', price: 18000 },
-  { id: 'm2', category: 'main', name: '계란 후라이온즈 스팸 주먹밥', price: 20000 },
-  { id: 'm3', category: 'main', name: '치킨 롯데리야끼 자이언츠 볶음밥', price: 15000 },
-  { id: 'm4', category: 'main', name: 'LGㅔ육 트윈스', price: 15000 },
+  { id: 'm1', category: 'main', name: '삼구삼진어묵탕', price: 17000 },
+  { id: 'm2', category: 'main', name: '계란 후라이온즈 스팸 주먹밥', price: 19000 },
+  { id: 'm3', category: 'main', name: '치킨 롯데리야끼 자이언츠 볶음밥', price: 16000 },
+  { id: 'm4', category: 'main', name: 'LGㅔ육 트윈스', price: 21000 },
   
   // 사이드 메뉴
-  { id: 'm5', category: 'side', name: '감튀 하나 익을쓰', price: 15000 },
-  { id: 'm6', category: 'side', name: '후르츠 황도 따다 두 손 베어스', price: 15000 },
-  { id: 'm7', category: 'side', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 15000 },
-  { id: 'm8', category: 'side', name: '마카로니 추가', price: 2000 },
+  { id: 'm5', category: 'side', name: '감튀 하나 익을쓰', price: 9000 },
+  { id: 'm6', category: 'side', name: '후르츠 황도 따다 두 손 베어스', price: 9000 },
+  { id: 'm7', category: 'side', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 10000 },
+  { id: 'm8', category: 'side', name: '마카로니 추가', price: 1000 },
   
   // 음료
-  { id: 'm9', category: 'drink', name: '참이슬', price: 5000 },
-  { id: 'm10', category: 'drink', name: '카스', price: 5000 },
-  { id: 'm11', category: 'drink', name: '콜라', price: 2000 },
-  { id: 'm12', category: 'drink', name: '사이다', price: 2000 },
+  { id: 'm9', category: 'drink', name: '콜라', price: 2000 },
+  { id: 'm10', category: 'drink', name: '사이다', price: 2000 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
@@ -43,18 +41,15 @@ const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i)
   timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN,
 }));
 
-// 🚨 추가된 컴포넌트: 한글 자음/모음 분리 방지를 위한 개별 메뉴 관리 로컬 상태 컴포넌트
 function MenuConfigItem({ item, onUpdate, onDelete }) {
   const [localName, setLocalName] = useState(item.name);
   const [localPrice, setLocalPrice] = useState(item.price);
 
-  // 외부 데이터베이스 값 동기화
   useEffect(() => {
     setLocalName(item.name);
     setLocalPrice(item.price);
   }, [item.name, item.price]);
 
-  // 입력 칸에서 포커스가 벗어날 때(onBlur)만 데이터베이스 업데이트 실행
   const handleBlur = () => {
     if (localName !== item.name || localPrice !== item.price) {
       onUpdate({ ...item, name: localName, price: localPrice });
@@ -96,8 +91,10 @@ function MenuConfigItem({ item, onUpdate, onDelete }) {
 
 export default function App() {
   const [viewMode, setViewMode] = useState('pos');
+  const [kitchenTab, setKitchenTab] = useState('queue');
   const [tables, setTables] = useState([]);
   const [menuCatalog, setMenuCatalog] = useState([]);
+  const [completedLogs, setCompletedLogs] = useState([]);
   const [isDbReady, setIsDbReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [selectedTableId, setSelectedTableId] = useState(null);
@@ -114,19 +111,22 @@ export default function App() {
         const data = docSnap.data();
         setTables(data.tables || []);
         setMenuCatalog(data.menuCatalog || []);
+        setCompletedLogs(data.completedLogs || []);
         setIsDbReady(true);
       } else {
-        setDoc(docRef, { tables: INITIAL_TABLES, menuCatalog: INITIAL_MENU });
+        setDoc(docRef, { tables: INITIAL_TABLES, menuCatalog: INITIAL_MENU, completedLogs: [] });
       }
     });
     return () => unsubscribe();
   }, []);
 
-  const updateDB = async (newTables, newMenuCatalog) => {
-    await setDoc(doc(db, "pos_data", "main_status"), {
-      tables: newTables || tables,
-      menuCatalog: newMenuCatalog || menuCatalog
-    }, { merge: true });
+  const updateDB = async (newTables, newMenuCatalog, newLogs) => {
+    const payload = {};
+    if (newTables) payload.tables = newTables;
+    if (newMenuCatalog) payload.menuCatalog = newMenuCatalog;
+    if (newLogs) payload.completedLogs = newLogs;
+
+    await setDoc(doc(db, "pos_data", "main_status"), payload, { merge: true });
   };
 
   useEffect(() => {
@@ -178,14 +178,35 @@ export default function App() {
   }, [tables]);
 
   const completeKitchenOrder = (tableId, orderId) => {
+    let orderNameToLog = "";
+    let tableLabelToLog = "";
+
     const newTables = tables.map(t => {
       if (t.id === tableId) {
-        const newOrders = t.orders.map(o => o.id === orderId ? { ...o, prepared: (o.prepared || 0) + 1 } : o);
+        tableLabelToLog = t.label;
+        const newOrders = t.orders.map(o => {
+          if (o.id === orderId) {
+            orderNameToLog = o.name;
+            return { ...o, prepared: (o.prepared || 0) + 1 };
+          }
+          return o;
+        });
         return { ...t, orders: newOrders };
       }
       return t;
     });
-    updateDB(newTables, null);
+
+    const newLog = {
+      id: Date.now().toString(36) + Math.random().toString(36).substring(2, 9),
+      tableId,
+      tableLabel: tableLabelToLog,
+      orderName: orderNameToLog,
+      completedAt: Date.now()
+    };
+
+    const newLogs = [newLog, ...(completedLogs || [])].slice(0, 200);
+
+    updateDB(newTables, null, newLogs);
   };
 
   const processOrderAddition = (menu) => {
@@ -263,7 +284,7 @@ export default function App() {
       title: '⚠️ 전체 테이블 초기화',
       message: '모든 테이블의 주문 내역, 시간, 상태가 완전히 초기화됩니다.\n이 작업은 되돌릴 수 없습니다. 진행하시겠습니까?',
       onConfirm: () => {
-        updateDB(INITIAL_TABLES, null);
+        updateDB(INITIAL_TABLES, null, []); 
         setDialogConfig(prev => ({ ...prev, isOpen: false }));
         setIsMenuConfigOpen(false);
       }
@@ -307,7 +328,8 @@ export default function App() {
               <button onClick={() => setViewMode('pos')} className={`flex items-center gap-1.5 px-3 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${viewMode === 'pos' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
                 <LayoutDashboard className="h-3.5 w-3.5 sm:h-4 sm:h-4" /> 홀
               </button>
-              <button onClick={() => setViewMode('kitchen')} className={`flex items-center gap-1.5 px-3 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${viewMode === 'kitchen' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
+              {/* 주방 진입 시 무조건 조리 대기열(queue)이 뜨도록 이벤트 핸들러 수정 */}
+              <button onClick={() => { setViewMode('kitchen'); setKitchenTab('queue'); }} className={`flex items-center gap-1.5 px-3 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${viewMode === 'kitchen' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
                 <ChefHat className="h-3.5 w-3.5 sm:h-4 sm:h-4" /> 주방
                 {kitchenData.cards.length > 0 && <span className="ml-1 bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">{kitchenData.cards.length}</span>}
               </button>
@@ -363,28 +385,72 @@ export default function App() {
           </div>
         ) : (
           <div className="flex flex-col lg:flex-row gap-4 sm:gap-8 animate-in fade-in duration-300">
-            <div className="flex-1 order-2 lg:order-1">
-              <h2 className="text-lg sm:text-xl font-black mb-4 sm:mb-6 flex items-center gap-2 px-1"><ChefHat className="h-5 w-5 text-emerald-500" /> 실시간 조리 대기열</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
-                {kitchenData.cards.map((item) => (
-                  <div key={item.uniqueKey} className="bg-slate-900 border-2 border-slate-800 rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col">
-                    <div className="bg-slate-800/50 p-3 sm:p-4 border-b border-slate-800 flex justify-between items-center">
-                      <span className="bg-indigo-600 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg">TABLE {item.tableId}</span>
-                      <span className="text-[9px] sm:text-[10px] font-mono text-slate-500">{new Date(item.startTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
-                    <div className="p-6 sm:p-8 text-center flex-1 flex flex-col justify-center">
-                      <div className="text-xl sm:text-2xl font-black text-white mb-6 sm:mb-8 tracking-tight leading-tight">{item.orderName}</div>
-                      <button onClick={() => completeKitchenOrder(item.tableId, item.orderId)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 sm:py-5 rounded-xl sm:rounded-2xl font-black text-lg sm:text-xl shadow-lg active:scale-95 flex items-center justify-center gap-2">
-                        <Check className="h-5 w-5 stroke-[3px]" /> 조리 완료
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {kitchenData.cards.length === 0 && <div className="col-span-full h-48 sm:h-[60vh] flex flex-col items-center justify-center opacity-10 border-2 border-dashed border-slate-800 rounded-2xl sm:rounded-3xl p-4 text-center"><CheckCircle2 className="h-12 w-12 sm:h-20 sm:h-20 mb-4" /><span className="text-lg sm:text-2xl font-black">대기 주문 없음</span></div>}
+            <div className="flex-1 order-2 lg:order-1 flex flex-col">
+              
+              <div className="flex gap-6 mb-4 sm:mb-6 px-1 border-b border-slate-800 relative">
+                <button 
+                  onClick={() => setKitchenTab('queue')} 
+                  className={`text-lg sm:text-xl font-black flex items-center gap-2 pb-3 border-b-[3px] transition-colors relative top-[2px] ${kitchenTab === 'queue' ? 'text-white border-emerald-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
+                >
+                  <ChefHat className={`h-5 w-5 ${kitchenTab === 'queue' ? 'text-emerald-500' : 'text-slate-500'}`} /> 실시간 조리 대기열
+                </button>
+                <button 
+                  onClick={() => setKitchenTab('log')} 
+                  className={`text-lg sm:text-xl font-black flex items-center gap-2 pb-3 border-b-[3px] transition-colors relative top-[2px] ${kitchenTab === 'log' ? 'text-white border-indigo-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
+                >
+                  <CheckCircle2 className={`h-5 w-5 ${kitchenTab === 'log' ? 'text-indigo-500' : 'text-slate-500'}`} /> 나간 주문 로그
+                </button>
               </div>
+
+              {kitchenTab === 'queue' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
+                  {kitchenData.cards.map((item) => (
+                    <div key={item.uniqueKey} className="bg-slate-900 border-2 border-slate-800 rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+                      <div className="bg-slate-800/80 p-3 sm:p-4 border-b border-slate-800 flex justify-between items-center">
+                        {/* 테이블 번호 가독성 대폭 상향 */}
+                        <div className="bg-indigo-600 text-white text-sm sm:text-base font-black px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl shadow-lg ring-2 ring-indigo-500/50 flex items-center gap-1.5">
+                          TABLE <span className="text-xl sm:text-2xl">{item.tableId}</span>
+                        </div>
+                        <span className="text-[10px] sm:text-xs font-mono text-slate-400 font-bold">{new Date(item.startTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <div className="p-6 sm:p-8 text-center flex-1 flex flex-col justify-center">
+                        <div className="text-xl sm:text-2xl font-black text-white mb-6 sm:mb-8 tracking-tight leading-tight">{item.orderName}</div>
+                        <button onClick={() => completeKitchenOrder(item.tableId, item.orderId)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 sm:py-5 rounded-xl sm:rounded-2xl font-black text-lg sm:text-xl shadow-lg active:scale-95 flex items-center justify-center gap-2">
+                          <Check className="h-5 w-5 stroke-[3px]" /> 조리 완료
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {kitchenData.cards.length === 0 && <div className="col-span-full h-48 sm:h-[60vh] flex flex-col items-center justify-center opacity-10 border-2 border-dashed border-slate-800 rounded-2xl sm:rounded-3xl p-4 text-center"><CheckCircle2 className="h-12 w-12 sm:h-20 sm:h-20 mb-4" /><span className="text-lg sm:text-2xl font-black">대기 주문 없음</span></div>}
+                </div>
+              ) : (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl flex-1 max-h-[75vh] overflow-y-auto scrollbar-thin">
+                  {completedLogs && completedLogs.length > 0 ? (
+                    <div className="space-y-3">
+                      {completedLogs.map(log => (
+                        <div key={log.id} className="flex justify-between items-center bg-slate-950 p-3 sm:p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition-colors">
+                          <div className="flex items-center gap-3 sm:gap-4">
+                            <span className="bg-indigo-600/20 text-indigo-400 text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-md whitespace-nowrap">{log.tableLabel}</span>
+                            <span className="font-bold text-sm sm:text-base text-slate-200">{log.orderName}</span>
+                          </div>
+                          <div className="text-[10px] sm:text-xs text-slate-500 font-mono whitespace-nowrap">
+                            {new Date(log.completedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="h-full min-h-[48px] sm:min-h-[40vh] flex flex-col items-center justify-center opacity-30 text-center">
+                      <CheckCircle2 className="h-12 w-12 sm:h-16 sm:h-16 mb-4 text-slate-500" />
+                      <span className="text-base sm:text-lg font-black text-slate-400">완료된 주문 내역이 없습니다</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+            
             <aside className="w-full lg:w-80 order-1 lg:order-2">
-              <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-3 sm:mb-6 flex items-center gap-2 px-1"><ListOrdered className="h-4 w-4 text-emerald-500" /> 메뉴별 합계</h3>
+              <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-3 sm:mb-6 flex items-center gap-2 px-1"><ListOrdered className="h-4 w-4 text-emerald-500" /> 메뉴별 대기 합계</h3>
               <div className="grid grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-4">
                 {kitchenData.summary.length > 0 ? kitchenData.summary.map(([name, count]) => (
                   <div key={name} className="flex justify-between items-center bg-slate-900/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800 shadow-sm">
@@ -398,7 +464,6 @@ export default function App() {
         )}
       </main>
 
-      {/* 🟢 모달: 홀 테이블 관리 */}
       {selectedTableId && tables.find(t => t.id === selectedTableId) && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-0 xs:p-4 z-40 animate-in fade-in duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-5xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
@@ -456,7 +521,7 @@ export default function App() {
                         setDialogConfig({
                           isOpen: true, title: '최종 결제', message: `${table.label} 결제: ${formatCurrency(calculateTotal(table.orders))}\n테이블을 초기화하시겠습니까?`,
                           onConfirm: () => {
-                            updateDB(tables.map(t => t.id === selectedTableId ? { ...t, status: 'empty', orders: [], startTime: null, timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, label: `테이블 ${t.id}` } : t));
+                            updateDB(tables.map(t => t.id === selectedTableId ? { ...t, status: 'empty', orders: [], startTime: null, timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, label: `테이블 ${t.id}` } : t), null);
                             setSelectedTableId(null);
                             setDialogConfig(prev => ({ ...prev, isOpen: false }));
                           }
@@ -490,7 +555,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 모달: 시스템 설정 관리 */}
       {isMenuConfigOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-0 xs:p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-3xl border-0 xs:border border-slate-800 p-6 sm:p-10 flex flex-col shadow-2xl">
@@ -499,7 +563,6 @@ export default function App() {
               <button onClick={() => setIsMenuConfigOpen(false)} className="hover:text-rose-500 transition-colors"><X className="h-6 w-6 sm:h-8 sm:h-8" /></button>
             </div>
             
-            {/* 메뉴 관리 영역 (변경된 MenuConfigItem 적용) */}
             <div className="flex-1 overflow-y-auto space-y-3 sm:space-y-4 mb-6 scrollbar-thin pr-2">
               <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Menu Configuration</h3>
               {menuCatalog.map(m => (
@@ -512,7 +575,6 @@ export default function App() {
               ))}
             </div>
 
-            {/* 설정 하단 버튼 영역 */}
             <div className="flex flex-col gap-3">
               <button onClick={() => updateDB(null, [...menuCatalog, {id: `m${Date.now()}`, name: '신규 메뉴', price: 0, category: 'main'}])} className="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
                 <Plus className="h-5 w-5" /> 메뉴 추가하기
@@ -525,7 +587,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 다이얼로그 */}
       {dialogConfig.isOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
           <div className="bg-slate-900 p-6 sm:p-10 rounded-2xl sm:rounded-3xl w-full max-w-sm border border-slate-800 shadow-2xl text-center">
