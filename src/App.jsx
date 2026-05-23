@@ -9,28 +9,26 @@ import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
 const SYSTEM_CONFIG = {
-  TOTAL_TABLES: 38, 
+  TOTAL_TABLES: 38, // 1. 테이블 수 38개로 설정
   DEFAULT_TIME_LIMIT_MIN: 120, 
   MERGE_BONUS_MIN: 30,         
 };
 
 const INITIAL_MENU = [
-  // 메인 메뉴
+  // 메인 메뉴 (요청하신 순서 및 가격 반영)
   { id: 'm1', category: 'main', name: 'LGㅔ육 트윈스', price: 21000 },
   { id: 'm2', category: 'main', name: '계란 후라이온즈 스팸 주먹밥', price: 19000 },
   { id: 'm3', category: 'main', name: '삼구삼진어묵탕', price: 17000 },
   { id: 'm4', category: 'main', name: '치킨롯데리야끼 볶음밥', price: 16000 },
   
-  // 사이드 메뉴
+  // 사이드 메뉴 및 음료 (요청하신 순서 및 가격 반영)
   { id: 'm5', category: 'side', name: '감튀 하나 익을쓰', price: 9000 },
   { id: 'm6', category: 'side', name: '황도따다 두손베어스', price: 9000 },
   { id: 'm7', category: 'side', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 10000 },
-  { id: 'm8', category: 'side', name: '마카로니 과자추가', price: 1000 },
-  
-  // 음료
-  { id: 'm9', category: 'drink', name: '콜라', price: 2000 },
-  { id: 'm10', category: 'drink', name: '사이다', price: 2000 },
-  { id: 'm11', category: 'drink', name: '생수', price: 0 },
+  { id: 'm8', category: 'drink', name: '콜라', price: 2000 },
+  { id: 'm9', category: 'drink', name: '사이다', price: 2000 },
+  { id: 'm10', category: 'drink', name: '생수', price: 2000 },
+  { id: 'm11', category: 'side', name: '마카로니 과자추가', price: 1000 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
@@ -92,10 +90,10 @@ function MenuConfigItem({ item, onUpdate, onDelete }) {
 
 export default function App() {
   const [viewMode, setViewMode] = useState('pos');
-  const [kitchenTab, setKitchenTab] = useState('queue');
+  const [kitchenTab, setKitchenTab] = useState('queue'); 
   const [tables, setTables] = useState([]);
   const [menuCatalog, setMenuCatalog] = useState([]);
-  const [completedLogs, setCompletedLogs] = useState([]);
+  const [completedLogs, setCompletedLogs] = useState([]); 
   const [isDbReady, setIsDbReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [selectedTableId, setSelectedTableId] = useState(null);
@@ -112,7 +110,7 @@ export default function App() {
         const data = docSnap.data();
         setTables(data.tables || []);
         setMenuCatalog(data.menuCatalog || []);
-        setCompletedLogs(data.completedLogs || []);
+        setCompletedLogs(data.completedLogs || []); 
         setIsDbReady(true);
       } else {
         setDoc(docRef, { tables: INITIAL_TABLES, menuCatalog: INITIAL_MENU, completedLogs: [] });
@@ -279,13 +277,14 @@ export default function App() {
     setIsMergeMode(false);
   };
 
+  // 🔥 수정됨: 초기화 시 로컬 소스코드의 최신 INITIAL_MENU와 38개 테이블 설정을 DB에 강제 Overwrite 하도록 변경
   const handleResetAllTables = () => {
     setDialogConfig({
       isOpen: true,
-      title: '⚠️ 전체 테이블 초기화',
-      message: '모든 테이블의 주문 내역, 시간, 상태가 완전히 초기화됩니다.\n이 작업은 되돌릴 수 없습니다. 진행하시겠습니까?',
+      title: '⚠️ 전체 테이블 및 메뉴 동기화 초기화',
+      message: '모든 테이블의 주문 내역 및 기기 상태가 초기화되며, 소스코드의 최신 메뉴 목록과 38개 테이블 설정이 데이터베이스에 강제로 동기화됩니다. 진행하시겠습니까?',
       onConfirm: () => {
-        updateDB(INITIAL_TABLES, null, []); 
+        updateDB(INITIAL_TABLES, INITIAL_MENU, []); 
         setDialogConfig(prev => ({ ...prev, isOpen: false }));
         setIsMenuConfigOpen(false);
       }
@@ -329,6 +328,7 @@ export default function App() {
               <button onClick={() => setViewMode('pos')} className={`flex items-center gap-1.5 px-3 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${viewMode === 'pos' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
                 <LayoutDashboard className="h-3.5 w-3.5 sm:h-4 sm:h-4" /> 홀
               </button>
+              {/* 2. 주방 탭 진입 시 무조건 조리 대기열(queue)이 먼저 뜨도록 고정 */}
               <button onClick={() => { setViewMode('kitchen'); setKitchenTab('queue'); }} className={`flex items-center gap-1.5 px-3 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${viewMode === 'kitchen' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
                 <ChefHat className="h-3.5 w-3.5 sm:h-4 sm:h-4" /> 주방
                 {kitchenData.cards.length > 0 && <span className="ml-1 bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">{kitchenData.cards.length}</span>}
@@ -407,6 +407,7 @@ export default function App() {
                   {kitchenData.cards.map((item) => (
                     <div key={item.uniqueKey} className="bg-slate-900 border-2 border-slate-800 rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col">
                       <div className="bg-slate-800/80 p-3 sm:p-4 border-b border-slate-800 flex justify-between items-center">
+                        {/* 3. 몇 번째 테이블인지 인지가 즉각 가능하도록 뱃지 크기 및 가독성 대폭 강화 */}
                         <div className="bg-indigo-600 text-white text-sm sm:text-base font-black px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl shadow-lg ring-2 ring-indigo-500/50 flex items-center gap-1.5">
                           TABLE <span className="text-xl sm:text-2xl">{item.tableId}</span>
                         </div>
@@ -578,6 +579,7 @@ export default function App() {
               <button onClick={() => updateDB(null, [...menuCatalog, {id: `m${Date.now()}`, name: '신규 메뉴', price: 0, category: 'main'}])} className="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
                 <Plus className="h-5 w-5" /> 메뉴 추가하기
               </button>
+              {/* 강제 Overwrite 동기화 기능이 주입된 초기화 버튼 */}
               <button onClick={handleResetAllTables} className="w-full py-4 sm:py-5 bg-rose-600/10 hover:bg-rose-600 border border-rose-600/30 text-rose-500 hover:text-white rounded-xl sm:rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
                 <Trash2 className="h-5 w-5" /> 모든 테이블 초기화
               </button>
