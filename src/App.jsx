@@ -30,7 +30,7 @@ const INITIAL_MENU = [
   // 음료
   { id: 'm8', category: 'drink', name: '콜라', price: 2000 },
   { id: 'm9', category: 'drink', name: '사이다', price: 2000 },
-  { id: 'm10', category: 'drink', name: '생수', price: 2000 },
+  { id: 'm10', category: 'drink', name: '생수', price: 0 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
@@ -349,13 +349,11 @@ export default function App() {
 
       <main className="p-3 sm:p-6 max-w-[1800px] mx-auto">
         {viewMode === 'pos' ? (
-          /* 🚨 수정됨: PC 화면(xl 기준)에서 가로 6줄(xl:grid-cols-6) 배치 및 간격(gap-2 sm:gap-4) 조정 */
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-4">
             {tables.map(table => {
               const { remaining, isOver } = computeTime(table.startTime, table.timeLimit, currentTime);
               const isOcc = table.status === 'occupied';
               return (
-                /* 🚨 수정됨: 6열 배치에 맞게 내부 패딩(p-3 sm:p-4) 소폭 축소 */
                 <button key={table.id} onClick={() => setSelectedTableId(table.id)} className={`group relative flex flex-col p-3 sm:p-4 rounded-xl sm:rounded-2xl border-2 transition-all duration-300 active:scale-95 text-left ${!isOcc ? 'bg-slate-900/40 border-slate-800 hover:border-indigo-500/30' : 'bg-slate-900 border-indigo-600 shadow-indigo-600/10 shadow-xl'}`}>
                   <div className="flex justify-between items-start w-full mb-2 sm:mb-3">
                     <span className={`text-sm sm:text-base font-black transition-colors ${isOcc ? 'text-white' : 'text-slate-600'}`}>{table.label}</span>
@@ -401,19 +399,20 @@ export default function App() {
               </div>
 
               {kitchenTab === 'queue' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
+                /* 🚨 수정됨: 조리 대기열 카드를 최대 5열(xl:grid-cols-5)로 압축 및 여백 축소 */
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
                   {kitchenData.cards.map((item) => (
-                    <div key={item.uniqueKey} className="bg-slate-900 border-2 border-slate-800 rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col">
-                      <div className="bg-slate-800/80 p-3 sm:p-4 border-b border-slate-800 flex justify-between items-center">
-                        <div className="bg-indigo-600 text-white text-sm sm:text-base font-black px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl shadow-lg ring-2 ring-indigo-500/50 flex items-center gap-1.5">
-                          TABLE <span className="text-xl sm:text-2xl">{item.tableId}</span>
+                    <div key={item.uniqueKey} className="bg-slate-900 border-2 border-slate-800 rounded-xl sm:rounded-2xl overflow-hidden shadow-xl flex flex-col">
+                      <div className="bg-slate-800/80 p-2 sm:p-3 border-b border-slate-800 flex justify-between items-center">
+                        <div className="bg-indigo-600 text-white text-xs sm:text-sm font-black px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg shadow-md ring-2 ring-indigo-500/50 flex items-center gap-1">
+                          TABLE <span className="text-lg sm:text-xl">{item.tableId}</span>
                         </div>
-                        <span className="text-[10px] sm:text-xs font-mono text-slate-400 font-bold">{new Date(item.startTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-[9px] sm:text-[10px] font-mono text-slate-400 font-bold">{new Date(item.startTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
-                      <div className="p-6 sm:p-8 text-center flex-1 flex flex-col justify-center">
-                        <div className="text-xl sm:text-2xl font-black text-white mb-6 sm:mb-8 tracking-tight leading-tight">{item.orderName}</div>
-                        <button onClick={() => completeKitchenOrder(item.tableId, item.orderId)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 sm:py-5 rounded-xl sm:rounded-2xl font-black text-lg sm:text-xl shadow-lg active:scale-95 flex items-center justify-center gap-2">
-                          <Check className="h-5 w-5 stroke-[3px]" /> 조리 완료
+                      <div className="p-4 sm:p-5 text-center flex-1 flex flex-col justify-center">
+                        <div className="text-base sm:text-lg font-black text-white mb-4 sm:mb-5 tracking-tight leading-tight">{item.orderName}</div>
+                        <button onClick={() => completeKitchenOrder(item.tableId, item.orderId)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 sm:py-4 rounded-lg sm:rounded-xl font-black text-sm sm:text-base shadow-lg active:scale-95 flex items-center justify-center gap-1.5">
+                          <Check className="h-4 w-4 stroke-[3px]" /> 조리 완료
                         </button>
                       </div>
                     </div>
@@ -463,7 +462,6 @@ export default function App() {
 
       {selectedTableId && tables.find(t => t.id === selectedTableId) && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-0 xs:p-4 z-40 animate-in fade-in duration-200">
-          {/* 🚨 수정됨: 메뉴 목록이 넓게 펼쳐지도록 모달 최대 너비를 max-w-5xl에서 max-w-6xl로 확장 */}
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-6xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
             <div className="p-5 sm:p-8 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
               <h2 className="text-2xl sm:text-3xl font-black tracking-tighter text-white">{tables.find(t => t.id === selectedTableId).label}</h2>
@@ -480,10 +478,8 @@ export default function App() {
                   return (
                     <div key={catKey}>
                       <h3 className="text-sm font-black text-slate-400 mb-3">{catName}</h3>
-                      {/* 🚨 수정됨: 더 조밀한 배치를 위해 grid-cols 확장 (lg:grid-cols-4 반영) */}
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                         {items.map(menu => (
-                          /* 🚨 수정됨: 메뉴 버튼 높이 축소(h-16 sm:h-20), 내부 폰트 사이즈 하향 조정 */
                           <button key={menu.id} onClick={() => processOrderAddition(menu)} className="bg-slate-900 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-slate-800 text-left hover:border-indigo-500 transition-all active:scale-95 flex flex-col justify-between h-16 sm:h-20 shadow-sm">
                             <div className="font-black text-xs sm:text-sm text-slate-200 leading-tight line-clamp-2">{menu.name}</div>
                             <div className="text-indigo-400 font-black text-[10px] sm:text-xs">{formatCurrency(menu.price)}</div>
