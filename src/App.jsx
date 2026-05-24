@@ -96,12 +96,16 @@ export default function App() {
   const [tables, setTables] = useState([]);
   const [menuCatalog, setMenuCatalog] = useState([]);
   const [completedLogs, setCompletedLogs] = useState([]); 
+  const [paymentLogs, setPaymentLogs] = useState([]); // 당일 결제 승인 내역 실시간 저장용
+  const [salesHistory, setSalesHistory] = useState([]); // 시간이 지나도 유지되는 영구 매출 보존 기록용
   const [isDbReady, setIsDbReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [selectedTableId, setSelectedTableId] = useState(null);
   
   const [isMergeMode, setIsMergeMode] = useState(false);
   const [isMenuConfigOpen, setIsMenuConfigOpen] = useState(false);
+  const [isSalesModalOpen, setIsSalesModalOpen] = useState(false); // 매출 상세 모달 제어 상태
+  const [salesTab, setSalesTab] = useState('current'); // 매출 정보 내 서브 탭 제어 ('current' | 'history')
   const [dialogConfig, setDialogConfig] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
   useEffect(() => {
@@ -112,19 +116,23 @@ export default function App() {
         setTables(data.tables || []);
         setMenuCatalog(data.menuCatalog || []);
         setCompletedLogs(data.completedLogs || []); 
+        setPaymentLogs(data.paymentLogs || []);
+        setSalesHistory(data.salesHistory || []);
         setIsDbReady(true);
       } else {
-        setDoc(docRef, { tables: INITIAL_TABLES, menuCatalog: INITIAL_MENU, completedLogs: [] });
+        setDoc(docRef, { tables: INITIAL_TABLES, menuCatalog: INITIAL_MENU, completedLogs: [], paymentLogs: [], salesHistory: [] });
       }
     });
     return () => unsubscribe();
   }, []);
 
-  const updateDB = async (newTables, newMenuCatalog, newLogs) => {
+  const updateDB = async (newTables, newMenuCatalog, newLogs, newPayments, newHistory) => {
     const payload = {};
     if (newTables) payload.tables = newTables;
     if (newMenuCatalog) payload.menuCatalog = newMenuCatalog;
     if (newLogs) payload.completedLogs = newLogs;
+    if (newPayments) payload.paymentLogs = newPayments;
+    if (newHistory) payload.salesHistory = newHistory;
 
     await setDoc(doc(db, "pos_data", "main_status"), payload, { merge: true });
   };
@@ -140,12 +148,62 @@ export default function App() {
         if (dialogConfig.isOpen) setDialogConfig(prev => ({...prev, isOpen: false}));
         else if (isMergeMode) setIsMergeMode(false);
         else if (isMenuConfigOpen) setIsMenuConfigOpen(false);
+        else if (isSalesModalOpen) setIsSalesModalOpen(false);
         else if (selectedTableId !== null) setSelectedTableId(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [dialogConfig.isOpen, isMergeMode, isMenuConfigOpen, selectedTableId]);
+  }, [dialogConfig.isOpen, isMergeMode, isMenuConfigOpen, isSalesModalOpen, selectedTableId]);
+
+  // 실시간 당일 매출 총액 환산 로직
+  const todayTotalSales = useMemo(() => {
+    return paymentLogs.reduce((sum, log) => sum + (log.totalAmount || 0), 0);
+  }, [paymentLogs]);
+
+  // 메뉴별 나간 총 수량 및 매출 비율 산출 데이터
+  const menuSalesSummary = useMemo(() => {
+    const summary = {};
+    paymentLogs.forEach(log => {
+      if (log.orders) {
+        log.orders.forEach(order => {
+          if (!summary[order.id]) {
+            summary[order.id] = { name: order.name, quantity: 0, amount: 0 };
+          }
+          summary[order.id].quantity += order.quantity;
+          summary[order.id].amount += (order.price * order.quantity);
+        });
+      }
+    });
+    return Object.values(summary).sort((a, b) => b.amount - a.amount);
+  }, [paymentLogs]);
+
+  // 실시간 매출 정보를 영구 아카이브 영역에 기록 보존하는 기능
+  const recordSalesToHistory = () => {
+    if (todayTotalSales === 0) {
+      alert("백업 등록할 당일 매출 내역이 존재하지 않습니다.");
+      return;
+    }
+    const dateString = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+    const existingIdx = salesHistory.findIndex(h => h.date === dateString);
+    let newHistory = [...(salesHistory || [])];
+
+    if (existingIdx !== -1) {
+      newHistory[existingIdx] = {
+        ...newHistory[existingIdx],
+        totalAmount: todayTotalSales, 
+      };
+    } else {
+      newHistory.push({
+        id: Date.now().toString(36),
+        date: dateString,
+        totalAmount: todayTotalSales
+      });
+    }
+
+    updateDB(null, null, null, null, newHistory);
+    alert(`[${dateString}] 매출 내역이 아카이브 보존 공간에 정상 등록되었습니다.`);
+  };
 
   const kitchenData = useMemo(() => {
     const cards = [];
@@ -275,13 +333,14 @@ export default function App() {
     setIsMergeMode(false);
   };
 
+  // 요청사항 1번 반영: 테이블 전체 초기화 진행 시 당일 매출(paymentLogs) 리셋 연동 (과거 아카이브 보존 보증)
   const handleResetAllTables = () => {
     setDialogConfig({
       isOpen: true,
-      title: '⚠️ 전체 테이블 및 메뉴 동기화 초기화',
-      message: '모든 테이블의 주문 내역 및 기기 상태가 초기화되며, 소스코드의 최신 메뉴 목록과 38개 테이블 설정이 데이터베이스에 강제로 동기화됩니다. 진행하시겠습니까?',
+      title: '⚠️ 전체 테이블 및 매출액 초기화',
+      message: '모든 테이블의 주문 내역 및 기기 상태가 초기화되며, 당일 실시간 총매출액도 함께 초기화됩니다. (단, 기록 보존 전용 공간의 과거 매출 데이터는 영구 보존됩니다.) 진행하시겠습니까?',
       onConfirm: () => {
-        updateDB(INITIAL_TABLES, INITIAL_MENU, []); 
+        updateDB(INITIAL_TABLES, INITIAL_MENU, [], [], null); 
         setDialogConfig(prev => ({ ...prev, isOpen: false }));
         setIsMenuConfigOpen(false);
       }
@@ -316,30 +375,40 @@ export default function App() {
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500/30 overflow-x-hidden">
       <nav className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-30 shadow-2xl">
         <div className="max-w-[1800px] mx-auto flex flex-wrap justify-between items-center gap-3">
-          <div className="flex items-center gap-3 sm:gap-8">
+          <div className="flex items-center gap-3 sm:gap-6">
             <h1 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 tracking-tighter cursor-default">
-              <Utensils className="h-6 w-6 sm:h-7 sm:h-7 text-indigo-500" /> 
+              <Utensils className="h-6 w-6 sm:h-7 text-indigo-500" /> 
               <span className="hidden xs:block">INFOSYS POS</span>
             </h1>
-            <div className="flex bg-slate-950 p-0.5 sm:p-1 rounded-xl border border-slate-800 shadow-inner">
-              <button onClick={() => setViewMode('pos')} className={`flex items-center gap-1.5 px-3 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${viewMode === 'pos' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
-                <LayoutDashboard className="h-3.5 w-3.5 sm:h-4 sm:h-4" /> 홀
+            
+            {/* 상단 배너 실시간 총매출액 연동 컴포넌트 */}
+            <button 
+              onClick={() => { setIsSalesModalOpen(true); setSalesTab('current'); }}
+              className="bg-slate-950 border border-slate-800 hover:border-emerald-500/40 px-3 py-1.5 sm:py-2 rounded-xl flex items-center gap-2 text-xs sm:text-sm font-bold transition-all text-emerald-400 shadow-inner group active:scale-95"
+            >
+              <span className="text-slate-500 group-hover:text-slate-400 font-bold transition-colors">당일 총매출</span>
+              <span className="font-mono text-sm sm:text-base font-black text-emerald-500 bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10">{formatCurrency(todayTotalSales)}</span>
+            </button>
+
+            <div className="flex bg-slate-950 p-0.5 rounded-xl border border-slate-800 shadow-inner">
+              <button onClick={() => setViewMode('pos')} className={`flex items-center gap-1.5 px-3 sm:px-5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${viewMode === 'pos' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
+                <LayoutDashboard className="h-3.5 w-3.5" /> 홀
               </button>
-              <button onClick={() => { setViewMode('kitchen'); setKitchenTab('queue'); }} className={`flex items-center gap-1.5 px-3 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${viewMode === 'kitchen' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
-                <ChefHat className="h-3.5 w-3.5 sm:h-4 sm:h-4" /> 주방
+              <button onClick={() => { setViewMode('kitchen'); setKitchenTab('queue'); }} className={`flex items-center gap-1.5 px-3 sm:px-5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${viewMode === 'kitchen' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>
+                <ChefHat className="h-3.5 w-3.5" /> 주방
                 {kitchenData.cards.length > 0 && <span className="ml-1 bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">{kitchenData.cards.length}</span>}
               </button>
             </div>
           </div>
           <div className="flex items-center gap-3 ml-auto">
-            <button onClick={() => setIsMenuConfigOpen(true)} className="p-2 sm:p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 transition-all duration-200 hover:bg-slate-700 hover:border-indigo-500">
+            <button onClick={() => setIsMenuConfigOpen(true)} className="p-2 sm:p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 transition-all duration-200 hover:bg-slate-700 hover:border-indigo-500">
               <Settings className="h-4 w-4 sm:h-5 sm:h-5" />
             </button>
             <div className="text-right cursor-default">
-              <div className="text-xs sm:text-sm font-mono text-slate-400 font-bold tracking-tighter">
+              <div className="text-xs font-mono text-slate-400 font-bold tracking-tighter">
                 {new Date(currentTime).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' })}
               </div>
-              <div className="text-sm sm:text-xl font-mono text-indigo-400 font-bold tracking-tighter leading-none mt-1">
+              <div className="text-sm sm:text-base font-mono text-indigo-400 font-bold tracking-tighter leading-none mt-1">
                 {new Date(currentTime).toLocaleTimeString('ko-KR', { hour12: false })}
               </div>
             </div>
@@ -399,7 +468,6 @@ export default function App() {
               </div>
 
               {kitchenTab === 'queue' ? (
-                /* 🚨 수정됨: 조리 대기열 카드를 최대 5열(xl:grid-cols-5)로 압축 및 여백 축소 */
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
                   {kitchenData.cards.map((item) => (
                     <div key={item.uniqueKey} className="bg-slate-900 border-2 border-slate-800 rounded-xl sm:rounded-2xl overflow-hidden shadow-xl flex flex-col">
@@ -460,6 +528,101 @@ export default function App() {
         )}
       </main>
 
+      {/* 🟢 요청사항 2, 3번 반영: 매출 상세 정산 및 과거 기록 공간 결합 모달 */}
+      {isSalesModalOpen && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in zoom-in-95 duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="p-5 sm:p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tighter">📊 매출 통계 관리 시스템</h2>
+                <p className="text-xs text-slate-500 font-bold mt-1">포스기에서 최종 결제 완료 처리된 실시간 정산 명세입니다.</p>
+              </div>
+              <button onClick={() => setIsSalesModalOpen(false)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-full transition-all">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* 매출 상세 공간 서브 네비게이션 탭 */}
+            <div className="flex border-b border-slate-800 bg-slate-950/40 px-4">
+              <button 
+                onClick={() => setSalesTab('current')} 
+                className={`px-4 py-3 text-xs sm:text-sm font-black border-b-2 transition-colors ${salesTab === 'current' ? 'text-emerald-500 border-emerald-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
+              >
+                당일 메뉴별 상세 실적 (2번 요구사항)
+              </button>
+              <button 
+                onClick={() => setSalesTab('history')} 
+                className={`px-4 py-3 text-xs sm:text-sm font-black border-b-2 transition-colors ${salesTab === 'history' ? 'text-indigo-500 border-indigo-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
+              >
+                과거 기록 영구 보존 아카이브 (3번 요구사항)
+              </button>
+            </div>
+
+            <div className="flex-1 p-4 sm:p-6 overflow-y-auto scrollbar-thin bg-slate-950/10">
+              {salesTab === 'current' ? (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-inner">
+                    <span className="text-xs sm:text-sm text-slate-400 font-black uppercase tracking-wider">현재 기준 당일 매출 총액</span>
+                    <span className="text-xl sm:text-2xl font-black text-emerald-500 font-mono tracking-tighter">{formatCurrency(todayTotalSales)}</span>
+                  </div>
+                  
+                  <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40 shadow-xl">
+                    <div className="grid grid-cols-3 bg-slate-800/50 p-2.5 sm:p-3 text-[11px] font-black text-slate-400 border-b border-slate-800 text-center uppercase tracking-widest">
+                      <div>메뉴명</div>
+                      <div>총 나간 수량</div>
+                      <div className="text-right pr-4">합산 매출액</div>
+                    </div>
+                    <div className="divide-y divide-slate-800/60 max-h-[40vh] overflow-y-auto scrollbar-thin">
+                      {menuSalesSummary.map((item, idx) => (
+                        <div key={idx} className="grid grid-cols-3 p-3 text-xs sm:text-sm font-bold text-slate-200 items-center text-center hover:bg-slate-900/60 transition-colors">
+                          <div className="text-left font-black text-slate-300 pl-2 truncate">{item.name}</div>
+                          <div className="font-mono text-indigo-400">{item.quantity} 개</div>
+                          <div className="font-mono text-emerald-400 text-right pr-4 font-black">{formatCurrency(item.amount)}</div>
+                        </div>
+                      ))}
+                      {menuSalesSummary.length === 0 && (
+                        <div className="p-8 text-center text-slate-600 text-xs font-bold">당일 최종 정산 처리된 주문 건이 없습니다.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={recordSalesToHistory}
+                    className="w-full bg-emerald-600/10 hover:bg-emerald-600 border border-emerald-500/20 text-emerald-400 hover:text-white py-3 rounded-xl font-black text-xs sm:text-sm transition-all active:scale-95"
+                  >
+                    💾 현재 매출 데이터를 과거 보존 아카이브에 백업 등록 (확정 마감)
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="text-xs text-slate-400 font-bold bg-slate-950 p-3.5 rounded-xl border border-slate-800 leading-relaxed shadow-inner">
+                    💡 **매출 보존 메커니즘**: 메인 설정에서 `모든 테이블 초기화`를 실행하여 당일 실시간 총액이 리셋되더라도, **이 공간에 기록해 둔 일자별 백업 명세는 영구 소멸되지 않고 시간이 지나도 안전하게 확인 가능**합니다.
+                  </div>
+                  
+                  <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40 shadow-xl">
+                    <div className="grid grid-cols-2 bg-slate-800/50 p-3 text-[11px] font-black text-slate-400 border-b border-slate-800 text-center uppercase tracking-widest">
+                      <div className="text-left pl-4">정산 일자</div>
+                      <div className="text-right pr-6">마감 매출액</div>
+                    </div>
+                    <div className="divide-y divide-slate-800/60 max-h-[45vh] overflow-y-auto scrollbar-thin">
+                      {salesHistory && salesHistory.map((history) => (
+                        <div key={history.id} className="grid grid-cols-2 p-3.5 text-xs sm:text-sm font-bold text-slate-200 items-center text-center hover:bg-slate-900/60 transition-colors">
+                          <div className="text-left font-black text-slate-300 pl-4">{history.date}</div>
+                          <div className="font-mono text-emerald-400 text-right pr-6 font-black">{formatCurrency(history.totalAmount)}</div>
+                        </div>
+                      ))}
+                      {(!salesHistory || salesHistory.length === 0) && (
+                        <div className="p-8 text-center text-slate-600 text-xs font-bold">보존 조치된 과거 정산 로그 파일이 비어 있습니다.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedTableId && tables.find(t => t.id === selectedTableId) && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-0 xs:p-4 z-40 animate-in fade-in duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-6xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
@@ -517,7 +680,24 @@ export default function App() {
                         setDialogConfig({
                           isOpen: true, title: '최종 결제', message: `${table.label} 결제: ${formatCurrency(calculateTotal(table.orders))}\n테이블을 초기화하시겠습니까?`,
                           onConfirm: () => {
-                            updateDB(tables.map(t => t.id === selectedTableId ? { ...t, status: 'empty', orders: [], startTime: null, timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, label: `테이블 ${t.id}` } : t), null);
+                            // 결제 로그 스냅샷 구성 및 누적 배열 결합
+                            const totalAmount = calculateTotal(table.orders);
+                            const newPayment = {
+                              id: Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
+                              tableLabel: table.label,
+                              orders: table.orders,
+                              totalAmount,
+                              paidAt: Date.now()
+                            };
+                            const newPayments = [...(paymentLogs || []), newPayment];
+
+                            updateDB(
+                              tables.map(t => t.id === selectedTableId ? { ...t, status: 'empty', orders: [], startTime: null, timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, label: `테이블 ${t.id}` } : t), 
+                              null, 
+                              null, 
+                              newPayments,
+                              null
+                            );
                             setSelectedTableId(null);
                             setDialogConfig(prev => ({ ...prev, isOpen: false }));
                           }
