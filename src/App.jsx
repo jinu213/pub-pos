@@ -30,7 +30,7 @@ const INITIAL_MENU = [
   // 음료
   { id: 'm8', category: 'drink', name: '콜라', price: 2000 },
   { id: 'm9', category: 'drink', name: '사이다', price: 2000 },
-  { id: 'm10', category: 'drink', name: '생수', price: 0 },
+  { id: 'm10', category: 'drink', name: '생수', price: 1500 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
@@ -548,13 +548,13 @@ export default function App() {
                 onClick={() => setSalesTab('current')} 
                 className={`px-4 py-3 text-xs sm:text-sm font-black border-b-2 transition-colors ${salesTab === 'current' ? 'text-emerald-500 border-emerald-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
               >
-                당일 메뉴별 상세 실적 (2번 요구사항)
+                당일 메뉴별 상세 실적
               </button>
               <button 
                 onClick={() => setSalesTab('history')} 
                 className={`px-4 py-3 text-xs sm:text-sm font-black border-b-2 transition-colors ${salesTab === 'history' ? 'text-indigo-500 border-indigo-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
               >
-                과거 기록 영구 보존 아카이브 (3번 요구사항)
+                과거 기록 영구 보존 아카이브
               </button>
             </div>
 
@@ -590,14 +590,11 @@ export default function App() {
                     onClick={recordSalesToHistory}
                     className="w-full bg-emerald-600/10 hover:bg-emerald-600 border border-emerald-500/20 text-emerald-400 hover:text-white py-3 rounded-xl font-black text-xs sm:text-sm transition-all active:scale-95"
                   >
-                    💾 현재 매출 데이터를 과거 보존 아카이브에 백업 등록 (확정 마감)
+                    확정 마감
                   </button>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="text-xs text-slate-400 font-bold bg-slate-950 p-3.5 rounded-xl border border-slate-800 leading-relaxed shadow-inner">
-                    💡 **매출 보존 메커니즘**: 메인 설정에서 `모든 테이블 초기화`를 실행하여 당일 실시간 총액이 리셋되더라도, **이 공간에 기록해 둔 일자별 백업 명세는 영구 소멸되지 않고 시간이 지나도 안전하게 확인 가능**합니다.
-                  </div>
                   
                   <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40 shadow-xl">
                     <div className="grid grid-cols-2 bg-slate-800/50 p-3 text-[11px] font-black text-slate-400 border-b border-slate-800 text-center uppercase tracking-widest">
