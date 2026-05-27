@@ -16,16 +16,22 @@ const SYSTEM_CONFIG = {
 
 const INITIAL_MENU = [
   // 메인 메뉴
-  { id: 'm1', category: 'main', name: 'LGㅔ육 트윈스', price: 21000 },
-  { id: 'm2', category: 'main', name: '계란 후라이온즈 스팸 주먹밥', price: 19000 },
-  { id: 'm3', category: 'main', name: '삼구삼진어묵탕', price: 17000 },
+  { id: 'm1', category: 'main', name: 'LGㅔ육 트윈스', price: 19000 },
+  { id: 'm2', category: 'main', name: '계란 후라이온즈 스팸 주먹밥', price: 18000 },
+  { id: 'm3', category: 'main', name: '삼구삼진어묵탕', price: 16000 },
   { id: 'm4', category: 'main', name: '치킨롯데리야끼 볶음밥', price: 16000 },
+  { id: 'm12', category: 'main', name: '빈 메뉴', price: 0 },
+  { id: 'm13', category: 'main', name: '입장료', price: 8000 },
+
   
   // 사이드 메뉴
-  { id: 'm5', category: 'side', name: '감튀 하나 익을쓰', price: 9000 },
-  { id: 'm6', category: 'side', name: '황도따다 두손베어스', price: 9000 },
-  { id: 'm7', category: 'side', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 10000 },
+  { id: 'm5', category: 'side', name: '감튀 하나 익을쓰', price: 8000 },
+  { id: 'm6', category: 'side', name: '황도따다 두손베어스', price: 7000 },
+  { id: 'm7', category: 'side', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 9000 },
   { id: 'm11', category: 'side', name: '마카로니 과자추가', price: 1000 },
+
+  
+  
 
   // 음료
   { id: 'm8', category: 'drink', name: '콜라', price: 2000 },
