@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Clock, Users, Utensils, Plus, Minus, X, Check, 
   ArrowRight, AlertCircle, Settings, Trash2, Wifi, 
-  ChefHat, LayoutDashboard, CheckCircle2, ListOrdered
+  ChefHat, LayoutDashboard, CheckCircle2, ListOrdered, RotateCcw
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
@@ -44,7 +44,7 @@ const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i)
   orders: [], 
   startTime: null, 
   timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN,
-  linkedTo: null // 연결된 부모 테이블 ID
+  linkedTo: null 
 }));
 
 function MenuConfigItem({ item, onUpdate, onDelete }) {
@@ -109,7 +109,7 @@ export default function App() {
   const [selectedTableId, setSelectedTableId] = useState(null);
   
   const [isMergeMode, setIsMergeMode] = useState(false);
-  const [isLinkMode, setIsLinkMode] = useState(false); // 자리 묶기 모달 상태
+  const [isLinkMode, setIsLinkMode] = useState(false); 
   const [isMenuConfigOpen, setIsMenuConfigOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false); 
   const [salesTab, setSalesTab] = useState('current'); 
@@ -120,7 +120,6 @@ export default function App() {
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        // DB에 linkedTo가 없는 구형 테이블 데이터 대응
         const loadedTables = (data.tables || []).map(t => ({...t, linkedTo: t.linkedTo || null}));
         setTables(loadedTables);
         setMenuCatalog(data.menuCatalog || []);
@@ -212,14 +211,13 @@ export default function App() {
     alert(`[${dateString}] 매출 내역이 아카이브 보존 공간에 정상 등록되었습니다.`);
   };
 
-  // 주방 데이터 집계: 'etc' 카테고리는 철저히 무시
   const kitchenData = useMemo(() => {
     const cards = [];
     const summary = {};
 
     tables.forEach(table => {
       table.orders.forEach(order => {
-        if (order.category === 'etc') return; // 주방 출력 제외
+        if (order.category === 'etc') return; 
         const remaining = order.quantity - (order.prepared || 0);
         if (remaining > 0) {
           summary[order.name] = (summary[order.name] || 0) + remaining;
@@ -264,12 +262,60 @@ export default function App() {
     const newLog = {
       id: Date.now().toString(36) + Math.random().toString(36).substring(2, 9),
       tableId,
+      orderId, // 롤백 처리를 식별하기 위해 데이터 추가
       tableLabel: tableLabelToLog,
       orderName: orderNameToLog,
       completedAt: Date.now()
     };
 
     const newLogs = [newLog, ...(completedLogs || [])].slice(0, 200);
+    updateDB(newTables, null, newLogs);
+  };
+
+  // ✅ 롤백(대기열 복귀) 기능 핵심 로직
+  const rollbackKitchenOrder = (logId) => {
+    const logToRollback = completedLogs.find(log => log.id === logId);
+    if (!logToRollback) return;
+
+    if (!logToRollback.orderId) {
+      alert("이전 시스템에서 생성된 로그이므로 롤백할 수 없습니다.");
+      return;
+    }
+
+    const targetTable = tables.find(t => t.id === logToRollback.tableId);
+    if (!targetTable || targetTable.status === 'empty') {
+      alert("해당 테이블이 이미 결제 완료되었거나 초기화되어 롤백할 수 없습니다.");
+      return;
+    }
+
+    const targetOrder = targetTable.orders.find(o => o.id === logToRollback.orderId);
+    if (!targetOrder) {
+      alert("해당 주문 내역이 삭제되어 롤백할 수 없습니다.");
+      return;
+    }
+
+    if ((targetOrder.prepared || 0) <= 0) {
+      alert("이미 대기열로 모두 롤백 복구되었습니다.");
+      return;
+    }
+
+    // 1. 홀 화면 테이블의 조리 완료(prepared) 수량 차감
+    const newTables = tables.map(t => {
+      if (t.id === logToRollback.tableId) {
+        const newOrders = t.orders.map(o => {
+          if (o.id === logToRollback.orderId) {
+            return { ...o, prepared: o.prepared - 1 };
+          }
+          return o;
+        });
+        return { ...t, orders: newOrders };
+      }
+      return t;
+    });
+
+    // 2. 나간 주문 로그 리스트에서 항목 제거
+    const newLogs = completedLogs.filter(log => log.id !== logId);
+
     updateDB(newTables, null, newLogs);
   };
 
@@ -303,7 +349,6 @@ export default function App() {
     updateDB(newTables, null);
   };
 
-  // 테이블 합석 (데이터 병합 및 소스 테이블 완전 제거)
   const executeMerge = (sourceId) => {
     const newTables = [...tables];
     const targetIdx = newTables.findIndex(t => t.id === selectedTableId);
@@ -340,7 +385,6 @@ export default function App() {
       label: `테이블 ${sourceId}` 
     };
 
-    // 소스 테이블에 종속되어 있던(자리 묶기) 테이블이 있다면, 타겟 테이블로 종속 변경
     newTables.forEach((t, i) => {
       if (t.linkedTo === sourceId) {
         newTables[i] = { ...t, linkedTo: selectedTableId };
@@ -351,7 +395,6 @@ export default function App() {
     setIsMergeMode(false);
   };
 
-  // 테이블 묶기 (자리 연결) 기능
   const executeLink = (targetId) => {
     const newTables = tables.map(t => {
       if (t.id === targetId) {
@@ -363,7 +406,6 @@ export default function App() {
     setIsLinkMode(false);
   };
 
-  // 묶인 테이블 개별 해제 기능
   const executeUnlink = (unlinkId) => {
     const newTables = tables.map(t => {
       if (t.id === unlinkId) {
@@ -460,7 +502,6 @@ export default function App() {
         {viewMode === 'pos' ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-4">
             {tables.map(table => {
-              // 1. 링크된 테이블 렌더링
               if (table.status === 'linked') {
                 return (
                   <button key={table.id} onClick={() => setSelectedTableId(table.linkedTo)} className="group relative flex flex-col p-3 sm:p-4 rounded-xl sm:rounded-2xl border-2 border-indigo-500 bg-indigo-600/20 hover:bg-indigo-600/30 transition-all duration-300 active:scale-95 items-center justify-center text-center shadow-lg shadow-indigo-500/10 min-h-[120px] sm:min-h-[140px]">
@@ -472,7 +513,6 @@ export default function App() {
                 );
               }
 
-              // 일반 테이블 렌더링
               const { remaining, isOver } = computeTime(table.startTime, table.timeLimit, currentTime);
               const isOcc = table.status === 'occupied';
               return (
@@ -550,8 +590,18 @@ export default function App() {
                             <span className="bg-indigo-600/20 text-indigo-400 text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-md whitespace-nowrap">{log.tableLabel}</span>
                             <span className="font-bold text-sm sm:text-base text-slate-200">{log.orderName}</span>
                           </div>
-                          <div className="text-[10px] sm:text-xs text-slate-500 font-mono whitespace-nowrap">
-                            {new Date(log.completedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          {/* ✅ 롤백 버튼 추가된 영역 */}
+                          <div className="flex items-center gap-2 sm:gap-4">
+                            <div className="text-[10px] sm:text-xs text-slate-500 font-mono whitespace-nowrap text-right">
+                              {new Date(log.completedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </div>
+                            <button 
+                              onClick={() => rollbackKitchenOrder(log.id)}
+                              className="bg-slate-800 hover:bg-rose-600 border border-slate-700 hover:border-rose-500 text-slate-400 hover:text-white px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-xs font-black transition-all flex items-center gap-1 active:scale-95"
+                              title="대기열로 되돌리기"
+                            >
+                              <RotateCcw className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden xs:block">롤백</span>
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -581,7 +631,6 @@ export default function App() {
         )}
       </main>
 
-      {/* 매출 상세 정산 및 과거 기록 모달 */}
       {isSalesModalOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden shadow-2xl">
@@ -596,16 +645,10 @@ export default function App() {
             </div>
 
             <div className="flex border-b border-slate-800 bg-slate-950/40 px-4">
-              <button 
-                onClick={() => setSalesTab('current')} 
-                className={`px-4 py-3 text-xs sm:text-sm font-black border-b-2 transition-colors ${salesTab === 'current' ? 'text-emerald-500 border-emerald-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
-              >
+              <button onClick={() => setSalesTab('current')} className={`px-4 py-3 text-xs sm:text-sm font-black border-b-2 transition-colors ${salesTab === 'current' ? 'text-emerald-500 border-emerald-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}>
                 당일 메뉴별 상세 실적
               </button>
-              <button 
-                onClick={() => setSalesTab('history')} 
-                className={`px-4 py-3 text-xs sm:text-sm font-black border-b-2 transition-colors ${salesTab === 'history' ? 'text-indigo-500 border-indigo-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
-              >
+              <button onClick={() => setSalesTab('history')} className={`px-4 py-3 text-xs sm:text-sm font-black border-b-2 transition-colors ${salesTab === 'history' ? 'text-indigo-500 border-indigo-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}>
                 과거 기록 영구 보존 아카이브
               </button>
             </div>
@@ -638,10 +681,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <button 
-                    onClick={recordSalesToHistory}
-                    className="w-full bg-emerald-600/10 hover:bg-emerald-600 border border-emerald-500/20 text-emerald-400 hover:text-white py-3 rounded-xl font-black text-xs sm:text-sm transition-all active:scale-95"
-                  >
+                  <button onClick={recordSalesToHistory} className="w-full bg-emerald-600/10 hover:bg-emerald-600 border border-emerald-500/20 text-emerald-400 hover:text-white py-3 rounded-xl font-black text-xs sm:text-sm transition-all active:scale-95">
                     확정 마감
                   </button>
                 </div>
@@ -671,12 +711,10 @@ export default function App() {
         </div>
       )}
 
-      {/* 테이블 상세/주문 모달 */}
       {selectedTableId && tables.find(t => t.id === selectedTableId) && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-0 xs:p-4 z-40 animate-in fade-in duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-6xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
             
-            {/* 상단 헤더: 자리 묶기(연결된 테이블) 정보 표시 및 개별 해제 기능 추가 */}
             <div className="p-5 sm:p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
               <div className="flex items-center flex-wrap gap-2 sm:gap-4">
                 <h2 className="text-2xl sm:text-3xl font-black tracking-tighter text-white">{tables.find(t => t.id === selectedTableId).label}</h2>
@@ -734,7 +772,6 @@ export default function App() {
                 <div className="mt-auto border-t border-slate-800 pt-4 sm:pt-6">
                   <div className="flex justify-between items-end mb-4 sm:mb-6"><span className="text-[10px] font-black text-slate-600 tracking-widest uppercase">Total</span><span className="text-2xl sm:text-4xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(tables.find(t => t.id === selectedTableId).orders))}</span></div>
                   
-                  {/* 자리 묶기 기능이 포함된 액션 버튼 3분할 영역 */}
                   <div className="grid grid-cols-3 gap-2">
                     <button onClick={() => setIsLinkMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><Plus className="w-4 h-4 mb-0.5" />자리 묶기</button>
                     <button onClick={() => setIsMergeMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><ArrowRight className="w-4 h-4 mb-0.5" />합석 처리</button>
@@ -754,7 +791,6 @@ export default function App() {
                             const newPayments = [...(paymentLogs || []), newPayment];
 
                             updateDB(
-                              // 본 테이블 및 종속되어 묶여있던 테이블들까지 전부 비우기
                               tables.map(t => (t.id === selectedTableId || t.linkedTo === selectedTableId) ? { ...t, status: 'empty', orders: [], startTime: null, timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, linkedTo: null, label: `테이블 ${t.id}` } : t), 
                               null, 
                               null, 
@@ -771,7 +807,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 기존 데이터 완전 병합 모드(합석 처리) */}
             {isMergeMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -792,7 +827,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 자리 묶기용 빈 테이블 선택 모달 */}
             {isLinkMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
