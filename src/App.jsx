@@ -20,9 +20,6 @@ const INITIAL_MENU = [
   { id: 'm2', category: 'main', name: '계란 후라이온즈 스팸 주먹밥', price: 18000 },
   { id: 'm3', category: 'main', name: '삼구삼진어묵탕', price: 16000 },
   { id: 'm4', category: 'main', name: '치킨롯데리야끼 볶음밥', price: 16000 },
-  { id: 'm12', category: 'main', name: '빈 메뉴', price: 0 },
-  { id: 'm13', category: 'main', name: '입장료', price: 8000 },
-
   
   // 사이드 메뉴
   { id: 'm5', category: 'side', name: '감튀 하나 익을쓰', price: 8000 },
@@ -30,13 +27,14 @@ const INITIAL_MENU = [
   { id: 'm7', category: 'side', name: 'Nㅓ겟 Cㅣ킨 다이노스', price: 9000 },
   { id: 'm11', category: 'side', name: '마카로니 과자추가', price: 1000 },
 
-  
-  
-
   // 음료
   { id: 'm8', category: 'drink', name: '콜라', price: 2000 },
   { id: 'm9', category: 'drink', name: '사이다', price: 2000 },
   { id: 'm10', category: 'drink', name: '생수', price: 1500 },
+
+  // 기타 메뉴 (주방 미출력)
+  { id: 'm12', category: 'etc', name: '빈 메뉴', price: 0 },
+  { id: 'm13', category: 'etc', name: '입장료', price: 8000 },
 ];
 
 const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i) => ({
@@ -46,6 +44,7 @@ const INITIAL_TABLES = Array.from({ length: SYSTEM_CONFIG.TOTAL_TABLES }, (_, i)
   orders: [], 
   startTime: null, 
   timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN,
+  linkedTo: null // 연결된 부모 테이블 ID
 }));
 
 function MenuConfigItem({ item, onUpdate, onDelete }) {
@@ -73,6 +72,7 @@ function MenuConfigItem({ item, onUpdate, onDelete }) {
         <option value="main">메인</option>
         <option value="side">사이드</option>
         <option value="drink">음료</option>
+        <option value="etc">기타</option>
       </select>
 
       <input 
@@ -102,16 +102,17 @@ export default function App() {
   const [tables, setTables] = useState([]);
   const [menuCatalog, setMenuCatalog] = useState([]);
   const [completedLogs, setCompletedLogs] = useState([]); 
-  const [paymentLogs, setPaymentLogs] = useState([]); // 당일 결제 승인 내역 실시간 저장용
-  const [salesHistory, setSalesHistory] = useState([]); // 시간이 지나도 유지되는 영구 매출 보존 기록용
+  const [paymentLogs, setPaymentLogs] = useState([]); 
+  const [salesHistory, setSalesHistory] = useState([]); 
   const [isDbReady, setIsDbReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [selectedTableId, setSelectedTableId] = useState(null);
   
   const [isMergeMode, setIsMergeMode] = useState(false);
+  const [isLinkMode, setIsLinkMode] = useState(false); // 자리 묶기 모달 상태
   const [isMenuConfigOpen, setIsMenuConfigOpen] = useState(false);
-  const [isSalesModalOpen, setIsSalesModalOpen] = useState(false); // 매출 상세 모달 제어 상태
-  const [salesTab, setSalesTab] = useState('current'); // 매출 정보 내 서브 탭 제어 ('current' | 'history')
+  const [isSalesModalOpen, setIsSalesModalOpen] = useState(false); 
+  const [salesTab, setSalesTab] = useState('current'); 
   const [dialogConfig, setDialogConfig] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
   useEffect(() => {
@@ -119,7 +120,9 @@ export default function App() {
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setTables(data.tables || []);
+        // DB에 linkedTo가 없는 구형 테이블 데이터 대응
+        const loadedTables = (data.tables || []).map(t => ({...t, linkedTo: t.linkedTo || null}));
+        setTables(loadedTables);
         setMenuCatalog(data.menuCatalog || []);
         setCompletedLogs(data.completedLogs || []); 
         setPaymentLogs(data.paymentLogs || []);
@@ -153,6 +156,7 @@ export default function App() {
       if (e.key === 'Escape') {
         if (dialogConfig.isOpen) setDialogConfig(prev => ({...prev, isOpen: false}));
         else if (isMergeMode) setIsMergeMode(false);
+        else if (isLinkMode) setIsLinkMode(false);
         else if (isMenuConfigOpen) setIsMenuConfigOpen(false);
         else if (isSalesModalOpen) setIsSalesModalOpen(false);
         else if (selectedTableId !== null) setSelectedTableId(null);
@@ -160,14 +164,12 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [dialogConfig.isOpen, isMergeMode, isMenuConfigOpen, isSalesModalOpen, selectedTableId]);
+  }, [dialogConfig.isOpen, isMergeMode, isLinkMode, isMenuConfigOpen, isSalesModalOpen, selectedTableId]);
 
-  // 실시간 당일 매출 총액 환산 로직
   const todayTotalSales = useMemo(() => {
     return paymentLogs.reduce((sum, log) => sum + (log.totalAmount || 0), 0);
   }, [paymentLogs]);
 
-  // 메뉴별 나간 총 수량 및 매출 비율 산출 데이터
   const menuSalesSummary = useMemo(() => {
     const summary = {};
     paymentLogs.forEach(log => {
@@ -184,7 +186,6 @@ export default function App() {
     return Object.values(summary).sort((a, b) => b.amount - a.amount);
   }, [paymentLogs]);
 
-  // 실시간 매출 정보를 영구 아카이브 영역에 기록 보존하는 기능
   const recordSalesToHistory = () => {
     if (todayTotalSales === 0) {
       alert("백업 등록할 당일 매출 내역이 존재하지 않습니다.");
@@ -211,12 +212,14 @@ export default function App() {
     alert(`[${dateString}] 매출 내역이 아카이브 보존 공간에 정상 등록되었습니다.`);
   };
 
+  // 주방 데이터 집계: 'etc' 카테고리는 철저히 무시
   const kitchenData = useMemo(() => {
     const cards = [];
     const summary = {};
 
     tables.forEach(table => {
       table.orders.forEach(order => {
+        if (order.category === 'etc') return; // 주방 출력 제외
         const remaining = order.quantity - (order.prepared || 0);
         if (remaining > 0) {
           summary[order.name] = (summary[order.name] || 0) + remaining;
@@ -300,6 +303,7 @@ export default function App() {
     updateDB(newTables, null);
   };
 
+  // 테이블 합석 (데이터 병합 및 소스 테이블 완전 제거)
   const executeMerge = (sourceId) => {
     const newTables = [...tables];
     const targetIdx = newTables.findIndex(t => t.id === selectedTableId);
@@ -332,14 +336,44 @@ export default function App() {
       orders: [], 
       startTime: null, 
       timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, 
+      linkedTo: null,
       label: `테이블 ${sourceId}` 
     };
+
+    // 소스 테이블에 종속되어 있던(자리 묶기) 테이블이 있다면, 타겟 테이블로 종속 변경
+    newTables.forEach((t, i) => {
+      if (t.linkedTo === sourceId) {
+        newTables[i] = { ...t, linkedTo: selectedTableId };
+      }
+    });
 
     updateDB(newTables, null);
     setIsMergeMode(false);
   };
 
-  // 요청사항 1번 반영: 테이블 전체 초기화 진행 시 당일 매출(paymentLogs) 리셋 연동 (과거 아카이브 보존 보증)
+  // 테이블 묶기 (자리 연결) 기능
+  const executeLink = (targetId) => {
+    const newTables = tables.map(t => {
+      if (t.id === targetId) {
+        return { ...t, status: 'linked', linkedTo: selectedTableId };
+      }
+      return t;
+    });
+    updateDB(newTables, null);
+    setIsLinkMode(false);
+  };
+
+  // 묶인 테이블 개별 해제 기능
+  const executeUnlink = (unlinkId) => {
+    const newTables = tables.map(t => {
+      if (t.id === unlinkId) {
+        return { ...t, status: 'empty', linkedTo: null };
+      }
+      return t;
+    });
+    updateDB(newTables, null);
+  };
+
   const handleResetAllTables = () => {
     setDialogConfig({
       isOpen: true,
@@ -369,6 +403,7 @@ export default function App() {
   };
 
   const availableMergeTargets = useMemo(() => tables.filter(t => t.status === 'occupied' && t.id !== selectedTableId), [tables, selectedTableId]);
+  const availableLinkTargets = useMemo(() => tables.filter(t => t.status === 'empty' && t.id !== selectedTableId), [tables, selectedTableId]);
 
   if (!isDbReady) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white gap-4 p-4">
@@ -387,7 +422,6 @@ export default function App() {
               <span className="hidden xs:block">INFOSYS POS</span>
             </h1>
             
-            {/* 상단 배너 실시간 총매출액 연동 컴포넌트 */}
             <button 
               onClick={() => { setIsSalesModalOpen(true); setSalesTab('current'); }}
               className="bg-slate-950 border border-slate-800 hover:border-emerald-500/40 px-3 py-1.5 sm:py-2 rounded-xl flex items-center gap-2 text-xs sm:text-sm font-bold transition-all text-emerald-400 shadow-inner group active:scale-95"
@@ -426,6 +460,19 @@ export default function App() {
         {viewMode === 'pos' ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-4">
             {tables.map(table => {
+              // 1. 링크된 테이블 렌더링
+              if (table.status === 'linked') {
+                return (
+                  <button key={table.id} onClick={() => setSelectedTableId(table.linkedTo)} className="group relative flex flex-col p-3 sm:p-4 rounded-xl sm:rounded-2xl border-2 border-indigo-500 bg-indigo-600/20 hover:bg-indigo-600/30 transition-all duration-300 active:scale-95 items-center justify-center text-center shadow-lg shadow-indigo-500/10 min-h-[120px] sm:min-h-[140px]">
+                    <span className="text-2xl sm:text-3xl mb-1 drop-shadow-lg">🔗</span>
+                    <span className="text-lg sm:text-xl font-black text-indigo-300 tracking-tighter">{table.linkedTo}번 테이블과</span>
+                    <span className="text-sm sm:text-base font-bold text-indigo-200 mt-1">함께 사용 중</span>
+                    <span className="absolute top-2 left-3 text-[10px] sm:text-xs font-black text-indigo-500/50">{table.label}</span>
+                  </button>
+                );
+              }
+
+              // 일반 테이블 렌더링
               const { remaining, isOver } = computeTime(table.startTime, table.timeLimit, currentTime);
               const isOcc = table.status === 'occupied';
               return (
@@ -534,7 +581,7 @@ export default function App() {
         )}
       </main>
 
-      {/* 🟢 요청사항 2, 3번 반영: 매출 상세 정산 및 과거 기록 공간 결합 모달 */}
+      {/* 매출 상세 정산 및 과거 기록 모달 */}
       {isSalesModalOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden shadow-2xl">
@@ -548,7 +595,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* 매출 상세 공간 서브 네비게이션 탭 */}
             <div className="flex border-b border-slate-800 bg-slate-950/40 px-4">
               <button 
                 onClick={() => setSalesTab('current')} 
@@ -601,7 +647,6 @@ export default function App() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  
                   <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40 shadow-xl">
                     <div className="grid grid-cols-2 bg-slate-800/50 p-3 text-[11px] font-black text-slate-400 border-b border-slate-800 text-center uppercase tracking-widest">
                       <div className="text-left pl-4">정산 일자</div>
@@ -626,20 +671,32 @@ export default function App() {
         </div>
       )}
 
+      {/* 테이블 상세/주문 모달 */}
       {selectedTableId && tables.find(t => t.id === selectedTableId) && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-0 xs:p-4 z-40 animate-in fade-in duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-6xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
-            <div className="p-5 sm:p-8 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-              <h2 className="text-2xl sm:text-3xl font-black tracking-tighter text-white">{tables.find(t => t.id === selectedTableId).label}</h2>
+            
+            {/* 상단 헤더: 자리 묶기(연결된 테이블) 정보 표시 및 개별 해제 기능 추가 */}
+            <div className="p-5 sm:p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+              <div className="flex items-center flex-wrap gap-2 sm:gap-4">
+                <h2 className="text-2xl sm:text-3xl font-black tracking-tighter text-white">{tables.find(t => t.id === selectedTableId).label}</h2>
+                {tables.filter(t => t.linkedTo === selectedTableId).map(t => (
+                  <div key={t.id} className="flex items-center gap-1.5 bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded-lg border border-indigo-500/30">
+                    <span className="text-[10px] sm:text-xs font-bold">{t.id}번 묶임</span>
+                    <button onClick={(e) => { e.stopPropagation(); executeUnlink(t.id); }} className="hover:text-rose-400 bg-indigo-500/10 rounded-full p-0.5"><X className="w-3 h-3" /></button>
+                  </div>
+                ))}
+              </div>
               <button onClick={() => setSelectedTableId(null)} className="p-2 sm:p-3 bg-slate-800 hover:bg-rose-500/20 hover:text-rose-400 rounded-full transition-all"><X className="h-6 w-6 sm:h-8 sm:h-8" /></button>
             </div>
+            
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
               <div className="flex-1 p-3 sm:p-5 overflow-y-auto bg-slate-950/50 space-y-4 sm:space-y-6 scrollbar-thin">
                 
-                {['main', 'side', 'drink'].map((catKey) => {
+                {['main', 'side', 'drink', 'etc'].map((catKey) => {
                   const items = menuCatalog.filter(m => (m.category || 'main') === catKey);
                   if (items.length === 0) return null;
-                  const catName = catKey === 'main' ? '메인 메뉴' : catKey === 'side' ? '사이드 메뉴' : '음료';
+                  const catName = catKey === 'main' ? '메인 메뉴' : catKey === 'side' ? '사이드 메뉴' : catKey === 'drink' ? '음료' : '기타 (주방 미출력)';
                   
                   return (
                     <div key={catKey}>
@@ -657,7 +714,7 @@ export default function App() {
                 })}
 
               </div>
-              <div className="w-full md:w-[400px] lg:w-[420px] bg-slate-900 p-5 sm:p-8 flex flex-col border-t md:border-t-0 md:border-l border-slate-800 shadow-2xl">
+              <div className="w-full md:w-[400px] lg:w-[420px] bg-slate-900 p-5 sm:p-6 flex flex-col border-t md:border-t-0 md:border-l border-slate-800 shadow-2xl">
                 <h3 className="text-[10px] font-black text-slate-600 uppercase mb-3 sm:mb-6 tracking-widest">ORDER LIST</h3>
                 <div className="flex-1 overflow-y-auto space-y-2.5 mb-4 sm:mb-8 pr-1 scrollbar-thin max-h-[150px] md:max-h-none">
                   {tables.find(t => t.id === selectedTableId).orders.map(o => (
@@ -674,16 +731,18 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-                <div className="mt-auto border-t border-slate-800 pt-4 sm:pt-8">
-                  <div className="flex justify-between items-end mb-4 sm:mb-8"><span className="text-[10px] font-black text-slate-600 tracking-widest uppercase">Total</span><span className="text-2xl sm:text-4xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(tables.find(t => t.id === selectedTableId).orders))}</span></div>
-                  <div className="grid grid-cols-2 gap-2 sm:gap-4">
-                    <button onClick={() => setIsMergeMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3.5 sm:py-5 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white">합석 처리</button>
+                <div className="mt-auto border-t border-slate-800 pt-4 sm:pt-6">
+                  <div className="flex justify-between items-end mb-4 sm:mb-6"><span className="text-[10px] font-black text-slate-600 tracking-widest uppercase">Total</span><span className="text-2xl sm:text-4xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(tables.find(t => t.id === selectedTableId).orders))}</span></div>
+                  
+                  {/* 자리 묶기 기능이 포함된 액션 버튼 3분할 영역 */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <button onClick={() => setIsLinkMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><Plus className="w-4 h-4 mb-0.5" />자리 묶기</button>
+                    <button onClick={() => setIsMergeMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><ArrowRight className="w-4 h-4 mb-0.5" />합석 처리</button>
                     <button onClick={() => {
                         const table = tables.find(t => t.id === selectedTableId);
                         setDialogConfig({
                           isOpen: true, title: '최종 결제', message: `${table.label} 결제: ${formatCurrency(calculateTotal(table.orders))}\n테이블을 초기화하시겠습니까?`,
                           onConfirm: () => {
-                            // 결제 로그 스냅샷 구성 및 누적 배열 결합
                             const totalAmount = calculateTotal(table.orders);
                             const newPayment = {
                               id: Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
@@ -695,7 +754,8 @@ export default function App() {
                             const newPayments = [...(paymentLogs || []), newPayment];
 
                             updateDB(
-                              tables.map(t => t.id === selectedTableId ? { ...t, status: 'empty', orders: [], startTime: null, timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, label: `테이블 ${t.id}` } : t), 
+                              // 본 테이블 및 종속되어 묶여있던 테이블들까지 전부 비우기
+                              tables.map(t => (t.id === selectedTableId || t.linkedTo === selectedTableId) ? { ...t, status: 'empty', orders: [], startTime: null, timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, linkedTo: null, label: `테이블 ${t.id}` } : t), 
                               null, 
                               null, 
                               newPayments,
@@ -705,21 +765,22 @@ export default function App() {
                             setDialogConfig(prev => ({ ...prev, isOpen: false }));
                           }
                         });
-                      }} className="bg-indigo-600 hover:bg-indigo-500 py-3.5 sm:py-5 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs shadow-xl active:scale-95 text-white">결제 완료</button>
+                      }} className="bg-indigo-600 hover:bg-indigo-500 py-3 sm:py-4 rounded-xl font-black text-[11px] sm:text-xs shadow-xl active:scale-95 text-white flex flex-col items-center justify-center"><Check className="w-4 h-4 mb-0.5" />결제 완료</button>
                   </div>
                 </div>
               </div>
             </div>
 
+            {/* 기존 데이터 완전 병합 모드(합석 처리) */}
             {isMergeMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
-                  <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 text-white"><ArrowRight className="h-6 w-6 sm:h-8 sm:h-8 text-indigo-500" /> 합석 테이블 선택</h3>
+                  <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 text-white"><ArrowRight className="h-6 w-6 sm:h-8 text-indigo-500" /> 합석 테이블 선택</h3>
                   <div className="space-y-3 sm:space-y-4 mb-8">
                     {availableMergeTargets.map(t => (
                       <button key={t.id} onClick={() => executeMerge(t.id)} className="w-full p-4 sm:p-6 bg-slate-900 rounded-xl sm:rounded-2xl border-2 border-slate-800 text-left flex justify-between items-center group hover:border-indigo-500 transition-all duration-200 active:scale-95">
                         <div><div className="font-black text-slate-300 text-base sm:text-lg">{t.label}</div><div className="text-[10px] sm:text-sm text-emerald-500 font-bold mt-1">{formatCurrency(calculateTotal(t.orders))}</div></div>
-                        <Plus className="h-5 w-5 sm:h-6 sm:h-6 text-slate-700 group-hover:text-indigo-400" />
+                        <Plus className="h-5 w-5 sm:h-6 text-slate-700 group-hover:text-indigo-400" />
                       </button>
                     ))}
                     {availableMergeTargets.length === 0 && (
@@ -730,10 +791,32 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {/* 자리 묶기용 빈 테이블 선택 모달 */}
+            {isLinkMode && (
+              <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
+                <div className="max-w-lg mx-auto w-full my-auto">
+                  <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 text-white"><Utensils className="h-6 w-6 sm:h-8 text-emerald-500" /> 자리 묶기 (연결할 빈 테이블 선택)</h3>
+                  <div className="space-y-3 sm:space-y-4 mb-8 max-h-[60vh] overflow-y-auto scrollbar-thin pr-2">
+                    {availableLinkTargets.map(t => (
+                      <button key={t.id} onClick={() => executeLink(t.id)} className="w-full p-4 sm:p-6 bg-slate-900 rounded-xl sm:rounded-2xl border-2 border-slate-800 text-left flex justify-between items-center group hover:border-emerald-500 transition-all duration-200 active:scale-95">
+                        <div className="font-black text-slate-300 text-base sm:text-lg">{t.label}</div>
+                        <Plus className="h-5 w-5 sm:h-6 text-slate-700 group-hover:text-emerald-400" />
+                      </button>
+                    ))}
+                    {availableLinkTargets.length === 0 && (
+                      <div className="p-8 text-center text-slate-500 font-bold bg-slate-900/50 rounded-2xl border border-slate-800 text-sm">연결 가능한 빈 테이블이 없습니다.</div>
+                    )}
+                  </div>
+                  <button onClick={() => setIsLinkMode(false)} className="w-full py-4 sm:py-5 bg-slate-800 hover:bg-slate-700 rounded-xl sm:rounded-2xl font-black text-white transition-all active:scale-95">취소</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
 
+      {/* 시스템 설정 모달 */}
       {isMenuConfigOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-0 xs:p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-3xl border-0 xs:border border-slate-800 p-6 sm:p-10 flex flex-col shadow-2xl">
