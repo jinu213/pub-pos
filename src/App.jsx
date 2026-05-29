@@ -110,6 +110,7 @@ export default function App() {
   
   const [isMergeMode, setIsMergeMode] = useState(false);
   const [isLinkMode, setIsLinkMode] = useState(false); 
+  const [isMoveMode, setIsMoveMode] = useState(false); // 🟢 자리 이동 모달 상태 추가
   const [isMenuConfigOpen, setIsMenuConfigOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false); 
   const [salesTab, setSalesTab] = useState('current'); 
@@ -150,12 +151,46 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // 🟢 기타 메뉴 1분 경과 시 자동 완료 처리 (로그에는 저장되지 않음)
+  useEffect(() => {
+    if (!isDbReady) return;
+    let hasUpdates = false;
+    
+    const newTables = tables.map(t => {
+      let tableUpdated = false;
+      const newOrders = t.orders.map(o => {
+        if (o.category === 'etc' && (o.prepared || 0) < o.quantity) {
+          if (o.addedAt && currentTime - o.addedAt >= 60000) { // 60초 경과 확인
+            tableUpdated = true;
+            return { ...o, prepared: o.quantity }; // 완료 수량을 전체 수량과 일치시킴
+          } else if (!o.addedAt) {
+            // 호환성을 위해 추가 시간이 없는 경우 현재 시간 부여
+            tableUpdated = true;
+            return { ...o, addedAt: currentTime };
+          }
+        }
+        return o;
+      });
+
+      if (tableUpdated) {
+        hasUpdates = true;
+        return { ...t, orders: newOrders };
+      }
+      return t;
+    });
+
+    if (hasUpdates) {
+      updateDB(newTables, null);
+    }
+  }, [currentTime, tables, isDbReady]);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         if (dialogConfig.isOpen) setDialogConfig(prev => ({...prev, isOpen: false}));
         else if (isMergeMode) setIsMergeMode(false);
         else if (isLinkMode) setIsLinkMode(false);
+        else if (isMoveMode) setIsMoveMode(false); // 🟢 이동 모달 닫기
         else if (isMenuConfigOpen) setIsMenuConfigOpen(false);
         else if (isSalesModalOpen) setIsSalesModalOpen(false);
         else if (selectedTableId !== null) setSelectedTableId(null);
@@ -163,7 +198,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [dialogConfig.isOpen, isMergeMode, isLinkMode, isMenuConfigOpen, isSalesModalOpen, selectedTableId]);
+  }, [dialogConfig.isOpen, isMergeMode, isLinkMode, isMoveMode, isMenuConfigOpen, isSalesModalOpen, selectedTableId]);
 
   const todayTotalSales = useMemo(() => {
     return paymentLogs.reduce((sum, log) => sum + (log.totalAmount || 0), 0);
@@ -262,7 +297,7 @@ export default function App() {
     const newLog = {
       id: Date.now().toString(36) + Math.random().toString(36).substring(2, 9),
       tableId,
-      orderId, // 롤백 처리를 식별하기 위해 데이터 추가
+      orderId, 
       tableLabel: tableLabelToLog,
       orderName: orderNameToLog,
       completedAt: Date.now()
@@ -272,7 +307,6 @@ export default function App() {
     updateDB(newTables, null, newLogs);
   };
 
-  // ✅ 롤백(대기열 복귀) 기능 핵심 로직
   const rollbackKitchenOrder = (logId) => {
     const logToRollback = completedLogs.find(log => log.id === logId);
     if (!logToRollback) return;
@@ -299,7 +333,6 @@ export default function App() {
       return;
     }
 
-    // 1. 홀 화면 테이블의 조리 완료(prepared) 수량 차감
     const newTables = tables.map(t => {
       if (t.id === logToRollback.tableId) {
         const newOrders = t.orders.map(o => {
@@ -313,9 +346,7 @@ export default function App() {
       return t;
     });
 
-    // 2. 나간 주문 로그 리스트에서 항목 제거
     const newLogs = completedLogs.filter(log => log.id !== logId);
-
     updateDB(newTables, null, newLogs);
   };
 
@@ -324,8 +355,8 @@ export default function App() {
       if (t.id === selectedTableId) {
         const exist = t.orders.find(o => o.id === menu.id);
         const updated = exist 
-          ? t.orders.map(o => o.id === menu.id ? { ...o, quantity: o.quantity + 1 } : o)
-          : [...t.orders, { ...menu, quantity: 1, prepared: 0 }];
+          ? t.orders.map(o => o.id === menu.id ? { ...o, quantity: o.quantity + 1, addedAt: Date.now() } : o)
+          : [...t.orders, { ...menu, quantity: 1, prepared: 0, addedAt: Date.now() }]; // 🟢 추가된 시간 기록
         const isFirst = t.startTime === null;
         return { ...t, orders: updated, status: isFirst ? 'occupied' : t.status, startTime: isFirst ? Date.now() : t.startTime };
       }
@@ -395,6 +426,42 @@ export default function App() {
     setIsMergeMode(false);
   };
 
+  // 🟢 자리 옮기기 (테이블 이동) 함수 추가
+  const executeMove = (targetId) => {
+    const newTables = tables.map(t => {
+      if (t.id === targetId) {
+        const sourceTable = tables.find(st => st.id === selectedTableId);
+        return { 
+          ...t, 
+          status: sourceTable.status, 
+          orders: sourceTable.orders, 
+          startTime: sourceTable.startTime, 
+          timeLimit: sourceTable.timeLimit 
+        };
+      }
+      if (t.id === selectedTableId) {
+        return { 
+          ...t, 
+          status: 'empty', 
+          orders: [], 
+          startTime: null, 
+          timeLimit: SYSTEM_CONFIG.DEFAULT_TIME_LIMIT_MIN, 
+          linkedTo: null, 
+          label: `테이블 ${t.id}` 
+        };
+      }
+      // 기존 테이블에 묶여있던 자리들의 종속을 새 테이블로 업데이트
+      if (t.linkedTo === selectedTableId) {
+        return { ...t, linkedTo: targetId };
+      }
+      return t;
+    });
+
+    updateDB(newTables, null);
+    setIsMoveMode(false);
+    setSelectedTableId(targetId); // 이동 완료 후 새 테이블 상세창을 유지
+  };
+
   const executeLink = (targetId) => {
     const newTables = tables.map(t => {
       if (t.id === targetId) {
@@ -446,6 +513,7 @@ export default function App() {
 
   const availableMergeTargets = useMemo(() => tables.filter(t => t.status === 'occupied' && t.id !== selectedTableId), [tables, selectedTableId]);
   const availableLinkTargets = useMemo(() => tables.filter(t => t.status === 'empty' && t.id !== selectedTableId), [tables, selectedTableId]);
+  const availableMoveTargets = useMemo(() => tables.filter(t => t.status === 'empty' && t.id !== selectedTableId), [tables, selectedTableId]); // 🟢 이동 가능한 테이블 리스트
 
   if (!isDbReady) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white gap-4 p-4">
@@ -590,7 +658,7 @@ export default function App() {
                             <span className="bg-indigo-600/20 text-indigo-400 text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-md whitespace-nowrap">{log.tableLabel}</span>
                             <span className="font-bold text-sm sm:text-base text-slate-200">{log.orderName}</span>
                           </div>
-                          {/* ✅ 롤백 버튼 추가된 영역 */}
+                          {/* ✅ 롤백 버튼이 포함된 영역 */}
                           <div className="flex items-center gap-2 sm:gap-4">
                             <div className="text-[10px] sm:text-xs text-slate-500 font-mono whitespace-nowrap text-right">
                               {new Date(log.completedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -772,9 +840,14 @@ export default function App() {
                 <div className="mt-auto border-t border-slate-800 pt-4 sm:pt-6">
                   <div className="flex justify-between items-end mb-4 sm:mb-6"><span className="text-[10px] font-black text-slate-600 tracking-widest uppercase">Total</span><span className="text-2xl sm:text-4xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(tables.find(t => t.id === selectedTableId).orders))}</span></div>
                   
-                  <div className="grid grid-cols-3 gap-2">
+                  {/* 🟢 액션 버튼 영역을 4분할(grid-cols-4)하여 '자리 이동' 버튼 추가 */}
+                  <div className="grid grid-cols-4 gap-2">
                     <button onClick={() => setIsLinkMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><Plus className="w-4 h-4 mb-0.5" />자리 묶기</button>
-                    <button onClick={() => setIsMergeMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><ArrowRight className="w-4 h-4 mb-0.5" />합석 처리</button>
+                    
+                    <button onClick={() => setIsMoveMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><ArrowRight className="w-4 h-4 mb-0.5" />자리 이동</button>
+
+                    <button onClick={() => setIsMergeMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><Users className="w-4 h-4 mb-0.5" />합석 처리</button>
+                    
                     <button onClick={() => {
                         const table = tables.find(t => t.id === selectedTableId);
                         setDialogConfig({
@@ -807,10 +880,11 @@ export default function App() {
               </div>
             </div>
 
+            {/* 합석 처리 모달 */}
             {isMergeMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
-                  <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 text-white"><ArrowRight className="h-6 w-6 sm:h-8 text-indigo-500" /> 합석 테이블 선택</h3>
+                  <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 text-white"><Users className="h-6 w-6 sm:h-8 text-indigo-500" /> 합석 테이블 선택</h3>
                   <div className="space-y-3 sm:space-y-4 mb-8">
                     {availableMergeTargets.map(t => (
                       <button key={t.id} onClick={() => executeMerge(t.id)} className="w-full p-4 sm:p-6 bg-slate-900 rounded-xl sm:rounded-2xl border-2 border-slate-800 text-left flex justify-between items-center group hover:border-indigo-500 transition-all duration-200 active:scale-95">
@@ -827,6 +901,7 @@ export default function App() {
               </div>
             )}
 
+            {/* 자리 묶기 모달 */}
             {isLinkMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -843,6 +918,27 @@ export default function App() {
                     )}
                   </div>
                   <button onClick={() => setIsLinkMode(false)} className="w-full py-4 sm:py-5 bg-slate-800 hover:bg-slate-700 rounded-xl sm:rounded-2xl font-black text-white transition-all active:scale-95">취소</button>
+                </div>
+              </div>
+            )}
+
+            {/* 🟢 자리 이동 모달 */}
+            {isMoveMode && (
+              <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
+                <div className="max-w-lg mx-auto w-full my-auto">
+                  <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 text-white"><ArrowRight className="h-6 w-6 sm:h-8 text-indigo-500" /> 자리 이동 (이동할 빈 테이블 선택)</h3>
+                  <div className="space-y-3 sm:space-y-4 mb-8 max-h-[60vh] overflow-y-auto scrollbar-thin pr-2">
+                    {availableMoveTargets.map(t => (
+                      <button key={t.id} onClick={() => executeMove(t.id)} className="w-full p-4 sm:p-6 bg-slate-900 rounded-xl sm:rounded-2xl border-2 border-slate-800 text-left flex justify-between items-center group hover:border-indigo-500 transition-all duration-200 active:scale-95">
+                        <div className="font-black text-slate-300 text-base sm:text-lg">{t.label}</div>
+                        <ArrowRight className="h-5 w-5 sm:h-6 text-slate-700 group-hover:text-indigo-400" />
+                      </button>
+                    ))}
+                    {availableMoveTargets.length === 0 && (
+                      <div className="p-8 text-center text-slate-500 font-bold bg-slate-900/50 rounded-2xl border border-slate-800 text-sm">이동 가능한 빈 테이블이 없습니다.</div>
+                    )}
+                  </div>
+                  <button onClick={() => setIsMoveMode(false)} className="w-full py-4 sm:py-5 bg-slate-800 hover:bg-slate-700 rounded-xl sm:rounded-2xl font-black text-white transition-all active:scale-95">취소</button>
                 </div>
               </div>
             )}
