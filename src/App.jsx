@@ -111,6 +111,8 @@ export default function App() {
   const [isMergeMode, setIsMergeMode] = useState(false);
   const [isLinkMode, setIsLinkMode] = useState(false); 
   const [isMoveMode, setIsMoveMode] = useState(false); 
+  const [isTimeAddMode, setIsTimeAddMode] = useState(false); // 🟢 시간 추가 모달 상태
+  const [customTimeAdd, setCustomTimeAdd] = useState(''); // 🟢 커스텀 시간 입력 상태
   const [isMenuConfigOpen, setIsMenuConfigOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false); 
   const [salesTab, setSalesTab] = useState('current'); 
@@ -135,17 +137,13 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 🛠️ 문제 2 해결: 낙관적 업데이트(Optimistic Update) 적용
-  // 네트워크 딜레이(Latency)를 기다리지 않고 로컬 화면을 즉시 덮어씌워 중복 클릭과 튕김 현상을 차단합니다.
   const updateDB = async (newTables, newMenuCatalog, newLogs, newPayments, newHistory) => {
-    // 1. 서버 전송 전 내 화면(Local State)부터 먼저 즉시 갱신
     if (newTables) setTables(newTables);
     if (newMenuCatalog) setMenuCatalog(newMenuCatalog);
     if (newLogs) setCompletedLogs(newLogs);
     if (newPayments) setPaymentLogs(newPayments);
     if (newHistory) setSalesHistory(newHistory);
 
-    // 2. 백그라운드로 Firebase DB 전송
     const payload = {};
     if (newTables) payload.tables = newTables;
     if (newMenuCatalog) payload.menuCatalog = newMenuCatalog;
@@ -161,7 +159,6 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 기타 메뉴 1분 경과 시 자동 완료 처리
   useEffect(() => {
     if (!isDbReady) return;
     let hasUpdates = false;
@@ -203,6 +200,7 @@ export default function App() {
         else if (isMergeMode) setIsMergeMode(false);
         else if (isLinkMode) setIsLinkMode(false);
         else if (isMoveMode) setIsMoveMode(false); 
+        else if (isTimeAddMode) { setIsTimeAddMode(false); setCustomTimeAdd(''); } // 🟢 모달 닫기
         else if (isMenuConfigOpen) setIsMenuConfigOpen(false);
         else if (isSalesModalOpen) setIsSalesModalOpen(false);
         else if (selectedTableId !== null) setSelectedTableId(null);
@@ -210,7 +208,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [dialogConfig.isOpen, isMergeMode, isLinkMode, isMoveMode, isMenuConfigOpen, isSalesModalOpen, selectedTableId]);
+  }, [dialogConfig.isOpen, isMergeMode, isLinkMode, isMoveMode, isTimeAddMode, isMenuConfigOpen, isSalesModalOpen, selectedTableId]);
 
   const todayTotalSales = useMemo(() => {
     return paymentLogs.reduce((sum, log) => sum + (log.totalAmount || 0), 0);
@@ -269,7 +267,6 @@ export default function App() {
         if (remaining > 0) {
           summary[order.name] = (summary[order.name] || 0) + remaining;
           for (let i = 0; i < remaining; i++) {
-            // 🛠️ 문제 1 해결: 테이블 최초오픈 시간 기준이 아니라 개별 '메뉴 추가 시간(timestamps)' 기준으로 정렬
             const itemIndex = (order.prepared || 0) + i;
             const itemTs = (order.timestamps && order.timestamps[itemIndex]) || order.addedAt || table.startTime;
 
@@ -278,7 +275,7 @@ export default function App() {
               tableLabel: table.label,
               orderId: order.id,
               orderName: order.name,
-              startTime: itemTs, // 개별 주문 시간 부여
+              startTime: itemTs,
               uniqueKey: `${table.id}-${order.id}-${i}`
             });
           }
@@ -373,7 +370,6 @@ export default function App() {
         const updated = exist 
           ? t.orders.map(o => {
               if (o.id === menu.id) {
-                // 기존 배열 보존하며 새 타임스탬프 추가
                 const currentTimestamps = o.timestamps || Array(o.quantity).fill(o.addedAt || Date.now());
                 return { ...o, quantity: o.quantity + 1, timestamps: [...currentTimestamps, Date.now()] };
               }
@@ -512,6 +508,20 @@ export default function App() {
       return t;
     });
     updateDB(newTables, null);
+  };
+
+  // 🟢 시간 추가 실행 로직
+  const executeAddTime = (mins) => {
+    if (!mins || isNaN(mins) || mins <= 0) return;
+    const newTables = tables.map(t => {
+      if (t.id === selectedTableId) {
+        return { ...t, timeLimit: t.timeLimit + mins };
+      }
+      return t;
+    });
+    updateDB(newTables, null);
+    setIsTimeAddMode(false);
+    setCustomTimeAdd('');
   };
 
   const handleResetAllTables = () => {
@@ -729,6 +739,7 @@ export default function App() {
         )}
       </main>
 
+      {/* 매출 상세 정산 및 과거 기록 모달 */}
       {isSalesModalOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden shadow-2xl">
@@ -809,6 +820,7 @@ export default function App() {
         </div>
       )}
 
+      {/* 🟢 테이블 상세 및 주문 모달 */}
       {selectedTableId && tables.find(t => t.id === selectedTableId) && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-0 xs:p-4 z-40 animate-in fade-in duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-6xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
@@ -870,10 +882,20 @@ export default function App() {
                 <div className="mt-auto border-t border-slate-800 pt-4 sm:pt-6">
                   <div className="flex justify-between items-end mb-4 sm:mb-6"><span className="text-[10px] font-black text-slate-600 tracking-widest uppercase">Total</span><span className="text-2xl sm:text-4xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(tables.find(t => t.id === selectedTableId).orders))}</span></div>
                   
-                  <div className="grid grid-cols-4 gap-2">
-                    <button onClick={() => setIsLinkMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><Plus className="w-4 h-4 mb-0.5" />자리 묶기</button>
-                    <button onClick={() => setIsMoveMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><ArrowRight className="w-4 h-4 mb-0.5" />자리 이동</button>
-                    <button onClick={() => setIsMergeMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><Users className="w-4 h-4 mb-0.5" />합석 처리</button>
+                  {/* 🟢 5분할 액션 그리드: 가장 좌측에 '시간 추가' 버튼 신설 */}
+                  <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                    <button onClick={() => setIsTimeAddMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-2.5 sm:py-4 rounded-lg sm:rounded-xl font-black text-[9px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center leading-tight">
+                      <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 mb-1" />시간 추가
+                    </button>
+                    <button onClick={() => setIsLinkMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-2.5 sm:py-4 rounded-lg sm:rounded-xl font-black text-[9px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center leading-tight">
+                      <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 mb-1" />자리 묶기
+                    </button>
+                    <button onClick={() => setIsMoveMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-2.5 sm:py-4 rounded-lg sm:rounded-xl font-black text-[9px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center leading-tight">
+                      <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 mb-1" />자리 이동
+                    </button>
+                    <button onClick={() => setIsMergeMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-2.5 sm:py-4 rounded-lg sm:rounded-xl font-black text-[9px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center leading-tight">
+                      <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 mb-1" />합석 처리
+                    </button>
                     <button onClick={() => {
                         const table = tables.find(t => t.id === selectedTableId);
                         setDialogConfig({
@@ -900,12 +922,49 @@ export default function App() {
                             setDialogConfig(prev => ({ ...prev, isOpen: false }));
                           }
                         });
-                      }} className="bg-indigo-600 hover:bg-indigo-500 py-3 sm:py-4 rounded-xl font-black text-[11px] sm:text-xs shadow-xl active:scale-95 text-white flex flex-col items-center justify-center"><Check className="w-4 h-4 mb-0.5" />결제 완료</button>
+                      }} className="bg-indigo-600 hover:bg-indigo-500 py-2.5 sm:py-4 rounded-lg sm:rounded-xl font-black text-[9px] sm:text-xs shadow-xl active:scale-95 text-white flex flex-col items-center justify-center leading-tight">
+                      <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 mb-1" />결제 완료
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
 
+            {/* 🟢 수동 시간 추가 모달 */}
+            {isTimeAddMode && (
+              <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
+                <div className="max-w-lg mx-auto w-full my-auto">
+                  <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 text-white"><Clock className="h-6 w-6 sm:h-8 text-indigo-500" /> 이용 시간 수동 추가</h3>
+                  <div className="space-y-4 mb-8">
+                    <div className="grid grid-cols-3 gap-3">
+                      {[30, 60, 120].map(mins => (
+                        <button key={mins} onClick={() => executeAddTime(mins)} className="py-4 bg-slate-900 rounded-xl border-2 border-slate-800 hover:border-indigo-500 font-black text-slate-300 hover:text-white transition-all active:scale-95">
+                          +{mins}분
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-3 mt-4">
+                      <input 
+                        type="number" 
+                        value={customTimeAdd}
+                        onChange={(e) => setCustomTimeAdd(e.target.value)}
+                        placeholder="직접 입력 (분)" 
+                        className="flex-1 bg-slate-900 border-2 border-slate-800 rounded-xl px-4 py-3 text-white font-black focus:border-indigo-500 outline-none"
+                      />
+                      <button 
+                        onClick={() => executeAddTime(Number(customTimeAdd))} 
+                        className="px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl transition-all active:scale-95"
+                      >
+                        적용
+                      </button>
+                    </div>
+                  </div>
+                  <button onClick={() => { setIsTimeAddMode(false); setCustomTimeAdd(''); }} className="w-full py-4 sm:py-5 bg-slate-800 hover:bg-slate-700 rounded-xl sm:rounded-2xl font-black text-white transition-all active:scale-95">취소</button>
+                </div>
+              </div>
+            )}
+
+            {/* 합석 처리 모달 */}
             {isMergeMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -926,6 +985,7 @@ export default function App() {
               </div>
             )}
 
+            {/* 자리 묶기 모달 */}
             {isLinkMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -946,6 +1006,7 @@ export default function App() {
               </div>
             )}
 
+            {/* 자리 이동 모달 */}
             {isMoveMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -969,6 +1030,7 @@ export default function App() {
         </div>
       )}
 
+      {/* 시스템 설정 모달 */}
       {isMenuConfigOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-0 xs:p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-3xl border-0 xs:border border-slate-800 p-6 sm:p-10 flex flex-col shadow-2xl">
