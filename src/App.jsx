@@ -110,7 +110,7 @@ export default function App() {
   
   const [isMergeMode, setIsMergeMode] = useState(false);
   const [isLinkMode, setIsLinkMode] = useState(false); 
-  const [isMoveMode, setIsMoveMode] = useState(false); // 🟢 자리 이동 모달 상태 추가
+  const [isMoveMode, setIsMoveMode] = useState(false); 
   const [isMenuConfigOpen, setIsMenuConfigOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false); 
   const [salesTab, setSalesTab] = useState('current'); 
@@ -135,7 +135,17 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // 🛠️ 문제 2 해결: 낙관적 업데이트(Optimistic Update) 적용
+  // 네트워크 딜레이(Latency)를 기다리지 않고 로컬 화면을 즉시 덮어씌워 중복 클릭과 튕김 현상을 차단합니다.
   const updateDB = async (newTables, newMenuCatalog, newLogs, newPayments, newHistory) => {
+    // 1. 서버 전송 전 내 화면(Local State)부터 먼저 즉시 갱신
+    if (newTables) setTables(newTables);
+    if (newMenuCatalog) setMenuCatalog(newMenuCatalog);
+    if (newLogs) setCompletedLogs(newLogs);
+    if (newPayments) setPaymentLogs(newPayments);
+    if (newHistory) setSalesHistory(newHistory);
+
+    // 2. 백그라운드로 Firebase DB 전송
     const payload = {};
     if (newTables) payload.tables = newTables;
     if (newMenuCatalog) payload.menuCatalog = newMenuCatalog;
@@ -151,7 +161,7 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 🟢 기타 메뉴 1분 경과 시 자동 완료 처리 (로그에는 저장되지 않음)
+  // 기타 메뉴 1분 경과 시 자동 완료 처리
   useEffect(() => {
     if (!isDbReady) return;
     let hasUpdates = false;
@@ -160,13 +170,15 @@ export default function App() {
       let tableUpdated = false;
       const newOrders = t.orders.map(o => {
         if (o.category === 'etc' && (o.prepared || 0) < o.quantity) {
-          if (o.addedAt && currentTime - o.addedAt >= 60000) { // 60초 경과 확인
+          const firstUnpreparedIndex = o.prepared || 0;
+          const itemTs = (o.timestamps && o.timestamps[firstUnpreparedIndex]) || o.addedAt;
+
+          if (itemTs && currentTime - itemTs >= 60000) { 
             tableUpdated = true;
-            return { ...o, prepared: o.quantity }; // 완료 수량을 전체 수량과 일치시킴
-          } else if (!o.addedAt) {
-            // 호환성을 위해 추가 시간이 없는 경우 현재 시간 부여
+            return { ...o, prepared: o.quantity }; 
+          } else if (!itemTs) {
             tableUpdated = true;
-            return { ...o, addedAt: currentTime };
+            return { ...o, addedAt: currentTime, timestamps: Array(o.quantity).fill(currentTime) };
           }
         }
         return o;
@@ -190,7 +202,7 @@ export default function App() {
         if (dialogConfig.isOpen) setDialogConfig(prev => ({...prev, isOpen: false}));
         else if (isMergeMode) setIsMergeMode(false);
         else if (isLinkMode) setIsLinkMode(false);
-        else if (isMoveMode) setIsMoveMode(false); // 🟢 이동 모달 닫기
+        else if (isMoveMode) setIsMoveMode(false); 
         else if (isMenuConfigOpen) setIsMenuConfigOpen(false);
         else if (isSalesModalOpen) setIsSalesModalOpen(false);
         else if (selectedTableId !== null) setSelectedTableId(null);
@@ -257,12 +269,16 @@ export default function App() {
         if (remaining > 0) {
           summary[order.name] = (summary[order.name] || 0) + remaining;
           for (let i = 0; i < remaining; i++) {
+            // 🛠️ 문제 1 해결: 테이블 최초오픈 시간 기준이 아니라 개별 '메뉴 추가 시간(timestamps)' 기준으로 정렬
+            const itemIndex = (order.prepared || 0) + i;
+            const itemTs = (order.timestamps && order.timestamps[itemIndex]) || order.addedAt || table.startTime;
+
             cards.push({
               tableId: table.id,
               tableLabel: table.label,
               orderId: order.id,
               orderName: order.name,
-              startTime: table.startTime,
+              startTime: itemTs, // 개별 주문 시간 부여
               uniqueKey: `${table.id}-${order.id}-${i}`
             });
           }
@@ -355,8 +371,16 @@ export default function App() {
       if (t.id === selectedTableId) {
         const exist = t.orders.find(o => o.id === menu.id);
         const updated = exist 
-          ? t.orders.map(o => o.id === menu.id ? { ...o, quantity: o.quantity + 1, addedAt: Date.now() } : o)
-          : [...t.orders, { ...menu, quantity: 1, prepared: 0, addedAt: Date.now() }]; // 🟢 추가된 시간 기록
+          ? t.orders.map(o => {
+              if (o.id === menu.id) {
+                // 기존 배열 보존하며 새 타임스탬프 추가
+                const currentTimestamps = o.timestamps || Array(o.quantity).fill(o.addedAt || Date.now());
+                return { ...o, quantity: o.quantity + 1, timestamps: [...currentTimestamps, Date.now()] };
+              }
+              return o;
+            })
+          : [...t.orders, { ...menu, quantity: 1, prepared: 0, addedAt: Date.now(), timestamps: [Date.now()] }];
+          
         const isFirst = t.startTime === null;
         return { ...t, orders: updated, status: isFirst ? 'occupied' : t.status, startTime: isFirst ? Date.now() : t.startTime };
       }
@@ -371,7 +395,13 @@ export default function App() {
         const exist = t.orders.find(o => o.id === menuId);
         if (!exist) return t;
         const updated = exist.quantity > 1
-          ? t.orders.map(o => o.id === menuId ? { ...o, quantity: o.quantity - 1, prepared: Math.min(o.prepared || 0, o.quantity - 1) } : o)
+          ? t.orders.map(o => {
+              if (o.id === menuId) {
+                const newTimestamps = o.timestamps ? o.timestamps.slice(0, -1) : undefined;
+                return { ...o, quantity: o.quantity - 1, prepared: Math.min(o.prepared || 0, o.quantity - 1), timestamps: newTimestamps || o.timestamps };
+              }
+              return o;
+            })
           : t.orders.filter(o => o.id !== menuId);
         return { ...t, orders: updated };
       }
@@ -389,10 +419,13 @@ export default function App() {
     newTables[sourceIdx].orders.forEach(sourceItem => {
       const existingIdx = mergedOrders.findIndex(item => item.id === sourceItem.id);
       if (existingIdx !== -1) {
+        const existingItem = mergedOrders[existingIdx];
+        const mergedTimestamps = [...(existingItem.timestamps || Array(existingItem.quantity).fill(existingItem.addedAt || Date.now())), ...(sourceItem.timestamps || Array(sourceItem.quantity).fill(sourceItem.addedAt || Date.now()))];
         mergedOrders[existingIdx] = { 
-          ...mergedOrders[existingIdx], 
-          quantity: mergedOrders[existingIdx].quantity + sourceItem.quantity, 
-          prepared: (mergedOrders[existingIdx].prepared || 0) + (sourceItem.prepared || 0) 
+          ...existingItem, 
+          quantity: existingItem.quantity + sourceItem.quantity, 
+          prepared: (existingItem.prepared || 0) + (sourceItem.prepared || 0),
+          timestamps: mergedTimestamps
         };
       } else { 
         mergedOrders.push({ ...sourceItem }); 
@@ -426,7 +459,6 @@ export default function App() {
     setIsMergeMode(false);
   };
 
-  // 🟢 자리 옮기기 (테이블 이동) 함수 추가
   const executeMove = (targetId) => {
     const newTables = tables.map(t => {
       if (t.id === targetId) {
@@ -450,7 +482,6 @@ export default function App() {
           label: `테이블 ${t.id}` 
         };
       }
-      // 기존 테이블에 묶여있던 자리들의 종속을 새 테이블로 업데이트
       if (t.linkedTo === selectedTableId) {
         return { ...t, linkedTo: targetId };
       }
@@ -459,7 +490,7 @@ export default function App() {
 
     updateDB(newTables, null);
     setIsMoveMode(false);
-    setSelectedTableId(targetId); // 이동 완료 후 새 테이블 상세창을 유지
+    setSelectedTableId(targetId); 
   };
 
   const executeLink = (targetId) => {
@@ -513,7 +544,7 @@ export default function App() {
 
   const availableMergeTargets = useMemo(() => tables.filter(t => t.status === 'occupied' && t.id !== selectedTableId), [tables, selectedTableId]);
   const availableLinkTargets = useMemo(() => tables.filter(t => t.status === 'empty' && t.id !== selectedTableId), [tables, selectedTableId]);
-  const availableMoveTargets = useMemo(() => tables.filter(t => t.status === 'empty' && t.id !== selectedTableId), [tables, selectedTableId]); // 🟢 이동 가능한 테이블 리스트
+  const availableMoveTargets = useMemo(() => tables.filter(t => t.status === 'empty' && t.id !== selectedTableId), [tables, selectedTableId]); 
 
   if (!isDbReady) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white gap-4 p-4">
@@ -658,7 +689,6 @@ export default function App() {
                             <span className="bg-indigo-600/20 text-indigo-400 text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-md whitespace-nowrap">{log.tableLabel}</span>
                             <span className="font-bold text-sm sm:text-base text-slate-200">{log.orderName}</span>
                           </div>
-                          {/* ✅ 롤백 버튼이 포함된 영역 */}
                           <div className="flex items-center gap-2 sm:gap-4">
                             <div className="text-[10px] sm:text-xs text-slate-500 font-mono whitespace-nowrap text-right">
                               {new Date(log.completedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -840,14 +870,10 @@ export default function App() {
                 <div className="mt-auto border-t border-slate-800 pt-4 sm:pt-6">
                   <div className="flex justify-between items-end mb-4 sm:mb-6"><span className="text-[10px] font-black text-slate-600 tracking-widest uppercase">Total</span><span className="text-2xl sm:text-4xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(tables.find(t => t.id === selectedTableId).orders))}</span></div>
                   
-                  {/* 🟢 액션 버튼 영역을 4분할(grid-cols-4)하여 '자리 이동' 버튼 추가 */}
                   <div className="grid grid-cols-4 gap-2">
                     <button onClick={() => setIsLinkMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><Plus className="w-4 h-4 mb-0.5" />자리 묶기</button>
-                    
                     <button onClick={() => setIsMoveMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><ArrowRight className="w-4 h-4 mb-0.5" />자리 이동</button>
-
                     <button onClick={() => setIsMergeMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-3 sm:py-4 rounded-xl font-black text-[10px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center"><Users className="w-4 h-4 mb-0.5" />합석 처리</button>
-                    
                     <button onClick={() => {
                         const table = tables.find(t => t.id === selectedTableId);
                         setDialogConfig({
@@ -880,12 +906,11 @@ export default function App() {
               </div>
             </div>
 
-            {/* 합석 처리 모달 */}
             {isMergeMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
                   <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 text-white"><Users className="h-6 w-6 sm:h-8 text-indigo-500" /> 합석 테이블 선택</h3>
-                  <div className="space-y-3 sm:space-y-4 mb-8">
+                  <div className="space-y-3 sm:space-y-4 mb-8 max-h-[60vh] overflow-y-auto scrollbar-thin pr-2">
                     {availableMergeTargets.map(t => (
                       <button key={t.id} onClick={() => executeMerge(t.id)} className="w-full p-4 sm:p-6 bg-slate-900 rounded-xl sm:rounded-2xl border-2 border-slate-800 text-left flex justify-between items-center group hover:border-indigo-500 transition-all duration-200 active:scale-95">
                         <div><div className="font-black text-slate-300 text-base sm:text-lg">{t.label}</div><div className="text-[10px] sm:text-sm text-emerald-500 font-bold mt-1">{formatCurrency(calculateTotal(t.orders))}</div></div>
@@ -901,7 +926,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 자리 묶기 모달 */}
             {isLinkMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -922,7 +946,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 🟢 자리 이동 모달 */}
             {isMoveMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -946,7 +969,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 시스템 설정 모달 */}
       {isMenuConfigOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-0 xs:p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-3xl border-0 xs:border border-slate-800 p-6 sm:p-10 flex flex-col shadow-2xl">
