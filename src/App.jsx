@@ -111,8 +111,8 @@ export default function App() {
   const [isMergeMode, setIsMergeMode] = useState(false);
   const [isLinkMode, setIsLinkMode] = useState(false); 
   const [isMoveMode, setIsMoveMode] = useState(false); 
-  const [isTimeAddMode, setIsTimeAddMode] = useState(false); // 🟢 시간 추가 모달 상태
-  const [customTimeAdd, setCustomTimeAdd] = useState(''); // 🟢 커스텀 시간 입력 상태
+  const [isTimeAddMode, setIsTimeAddMode] = useState(false);
+  const [customTimeAdd, setCustomTimeAdd] = useState('');
   const [isMenuConfigOpen, setIsMenuConfigOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false); 
   const [salesTab, setSalesTab] = useState('current'); 
@@ -137,13 +137,8 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // 낙관적 업데이트 롤백: 오직 Firebase를 거쳐 상태가 최신화되도록 복원
   const updateDB = async (newTables, newMenuCatalog, newLogs, newPayments, newHistory) => {
-    if (newTables) setTables(newTables);
-    if (newMenuCatalog) setMenuCatalog(newMenuCatalog);
-    if (newLogs) setCompletedLogs(newLogs);
-    if (newPayments) setPaymentLogs(newPayments);
-    if (newHistory) setSalesHistory(newHistory);
-
     const payload = {};
     if (newTables) payload.tables = newTables;
     if (newMenuCatalog) payload.menuCatalog = newMenuCatalog;
@@ -159,6 +154,7 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // 기타(etc) 메뉴 1분 후 자동 완료 처리 로직
   useEffect(() => {
     if (!isDbReady) return;
     let hasUpdates = false;
@@ -167,15 +163,12 @@ export default function App() {
       let tableUpdated = false;
       const newOrders = t.orders.map(o => {
         if (o.category === 'etc' && (o.prepared || 0) < o.quantity) {
-          const firstUnpreparedIndex = o.prepared || 0;
-          const itemTs = (o.timestamps && o.timestamps[firstUnpreparedIndex]) || o.addedAt;
-
-          if (itemTs && currentTime - itemTs >= 60000) { 
+          if (o.addedAt && currentTime - o.addedAt >= 60000) { 
             tableUpdated = true;
             return { ...o, prepared: o.quantity }; 
-          } else if (!itemTs) {
+          } else if (!o.addedAt) {
             tableUpdated = true;
-            return { ...o, addedAt: currentTime, timestamps: Array(o.quantity).fill(currentTime) };
+            return { ...o, addedAt: currentTime };
           }
         }
         return o;
@@ -200,7 +193,7 @@ export default function App() {
         else if (isMergeMode) setIsMergeMode(false);
         else if (isLinkMode) setIsLinkMode(false);
         else if (isMoveMode) setIsMoveMode(false); 
-        else if (isTimeAddMode) { setIsTimeAddMode(false); setCustomTimeAdd(''); } // 🟢 모달 닫기
+        else if (isTimeAddMode) { setIsTimeAddMode(false); setCustomTimeAdd(''); } 
         else if (isMenuConfigOpen) setIsMenuConfigOpen(false);
         else if (isSalesModalOpen) setIsSalesModalOpen(false);
         else if (selectedTableId !== null) setSelectedTableId(null);
@@ -267,15 +260,12 @@ export default function App() {
         if (remaining > 0) {
           summary[order.name] = (summary[order.name] || 0) + remaining;
           for (let i = 0; i < remaining; i++) {
-            const itemIndex = (order.prepared || 0) + i;
-            const itemTs = (order.timestamps && order.timestamps[itemIndex]) || order.addedAt || table.startTime;
-
             cards.push({
               tableId: table.id,
               tableLabel: table.label,
               orderId: order.id,
               orderName: order.name,
-              startTime: itemTs,
+              startTime: table.startTime, // 대기열 롤백: 개별 타임스탬프 대신 테이블 시간으로 복구
               uniqueKey: `${table.id}-${order.id}-${i}`
             });
           }
@@ -368,14 +358,8 @@ export default function App() {
       if (t.id === selectedTableId) {
         const exist = t.orders.find(o => o.id === menu.id);
         const updated = exist 
-          ? t.orders.map(o => {
-              if (o.id === menu.id) {
-                const currentTimestamps = o.timestamps || Array(o.quantity).fill(o.addedAt || Date.now());
-                return { ...o, quantity: o.quantity + 1, timestamps: [...currentTimestamps, Date.now()] };
-              }
-              return o;
-            })
-          : [...t.orders, { ...menu, quantity: 1, prepared: 0, addedAt: Date.now(), timestamps: [Date.now()] }];
+          ? t.orders.map(o => o.id === menu.id ? { ...o, quantity: o.quantity + 1, addedAt: Date.now() } : o)
+          : [...t.orders, { ...menu, quantity: 1, prepared: 0, addedAt: Date.now() }];
           
         const isFirst = t.startTime === null;
         return { ...t, orders: updated, status: isFirst ? 'occupied' : t.status, startTime: isFirst ? Date.now() : t.startTime };
@@ -391,13 +375,7 @@ export default function App() {
         const exist = t.orders.find(o => o.id === menuId);
         if (!exist) return t;
         const updated = exist.quantity > 1
-          ? t.orders.map(o => {
-              if (o.id === menuId) {
-                const newTimestamps = o.timestamps ? o.timestamps.slice(0, -1) : undefined;
-                return { ...o, quantity: o.quantity - 1, prepared: Math.min(o.prepared || 0, o.quantity - 1), timestamps: newTimestamps || o.timestamps };
-              }
-              return o;
-            })
+          ? t.orders.map(o => o.id === menuId ? { ...o, quantity: o.quantity - 1, prepared: Math.min(o.prepared || 0, o.quantity - 1) } : o)
           : t.orders.filter(o => o.id !== menuId);
         return { ...t, orders: updated };
       }
@@ -415,13 +393,10 @@ export default function App() {
     newTables[sourceIdx].orders.forEach(sourceItem => {
       const existingIdx = mergedOrders.findIndex(item => item.id === sourceItem.id);
       if (existingIdx !== -1) {
-        const existingItem = mergedOrders[existingIdx];
-        const mergedTimestamps = [...(existingItem.timestamps || Array(existingItem.quantity).fill(existingItem.addedAt || Date.now())), ...(sourceItem.timestamps || Array(sourceItem.quantity).fill(sourceItem.addedAt || Date.now()))];
         mergedOrders[existingIdx] = { 
-          ...existingItem, 
-          quantity: existingItem.quantity + sourceItem.quantity, 
-          prepared: (existingItem.prepared || 0) + (sourceItem.prepared || 0),
-          timestamps: mergedTimestamps
+          ...mergedOrders[existingIdx], 
+          quantity: mergedOrders[existingIdx].quantity + sourceItem.quantity, 
+          prepared: (mergedOrders[existingIdx].prepared || 0) + (sourceItem.prepared || 0) 
         };
       } else { 
         mergedOrders.push({ ...sourceItem }); 
@@ -510,7 +485,6 @@ export default function App() {
     updateDB(newTables, null);
   };
 
-  // 🟢 시간 추가 실행 로직
   const executeAddTime = (mins) => {
     if (!mins || isNaN(mins) || mins <= 0) return;
     const newTables = tables.map(t => {
@@ -739,7 +713,6 @@ export default function App() {
         )}
       </main>
 
-      {/* 매출 상세 정산 및 과거 기록 모달 */}
       {isSalesModalOpen && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden shadow-2xl">
@@ -820,7 +793,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 🟢 테이블 상세 및 주문 모달 */}
       {selectedTableId && tables.find(t => t.id === selectedTableId) && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center p-0 xs:p-4 z-40 animate-in fade-in duration-200">
           <div className="bg-slate-900 rounded-none xs:rounded-3xl w-full h-full xs:h-auto max-w-6xl xs:max-h-[90vh] flex flex-col overflow-hidden border-0 xs:border border-slate-800 shadow-2xl relative">
@@ -882,7 +854,6 @@ export default function App() {
                 <div className="mt-auto border-t border-slate-800 pt-4 sm:pt-6">
                   <div className="flex justify-between items-end mb-4 sm:mb-6"><span className="text-[10px] font-black text-slate-600 tracking-widest uppercase">Total</span><span className="text-2xl sm:text-4xl font-black text-emerald-500 tracking-tighter">{formatCurrency(calculateTotal(tables.find(t => t.id === selectedTableId).orders))}</span></div>
                   
-                  {/* 🟢 5분할 액션 그리드: 가장 좌측에 '시간 추가' 버튼 신설 */}
                   <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                     <button onClick={() => setIsTimeAddMode(true)} disabled={tables.find(t => t.id === selectedTableId).status === 'empty'} className="bg-slate-800 hover:bg-slate-700 disabled:opacity-20 py-2.5 sm:py-4 rounded-lg sm:rounded-xl font-black text-[9px] sm:text-xs transition-all active:scale-95 text-white flex flex-col items-center justify-center leading-tight">
                       <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 mb-1" />시간 추가
@@ -930,7 +901,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 🟢 수동 시간 추가 모달 */}
             {isTimeAddMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -964,7 +934,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 합석 처리 모달 */}
             {isMergeMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -985,7 +954,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 자리 묶기 모달 */}
             {isLinkMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
@@ -1006,7 +974,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 자리 이동 모달 */}
             {isMoveMode && (
               <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-xl flex flex-col p-6 sm:p-8 z-50 animate-in fade-in duration-200 overflow-y-auto">
                 <div className="max-w-lg mx-auto w-full my-auto">
