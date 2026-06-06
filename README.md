@@ -17,7 +17,7 @@ git clone [https://github.com/your-username/your-repo-name.git](https://github.c
 cd your-repo-name
 npm install
 
-**### 2. Execution**
+### 2. Execution
 Configure your environment variables (e.g., Firebase setup) and run the development server:
 
 # For development environment
