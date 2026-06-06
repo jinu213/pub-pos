@@ -1,16 +1,27 @@
-# React + Vite
+# Real-Time Table Management (POS) System
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Introduction
+This project is a web-based POS system designed to streamline campus events by providing real-time management of orders and table availability. It optimizes event operations by ensuring seamless coordination between ordering and preparation.
 
-Currently, two official plugins are available:
+## Key Features
+- **Real-Time Table Timers & Status Tracking**: Monitor table occupancy, status, and elapsed time in real time.
+- **Dynamic Menu Management**: Efficiently update, add, or modify menu items on the fly.
+- **Kitchen Display System (KDS) Integration**: Synchronize front-of-house orders with the kitchen instantly for smooth tracking.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## How to Use
 
-## React Compiler
+### 1. Installation
+Clone the repository and install the necessary dependencies:
+```bash
+git clone [https://github.com/your-username/your-repo-name.git](https://github.com/your-username/your-repo-name.git)
+cd your-repo-name
+npm install
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+**### 2. Execution**
+Configure your environment variables (e.g., Firebase setup) and run the development server:
 
-## Expanding the ESLint configuration
+# For development environment
+npm run dev
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+# Or for standard startup
+npm start
