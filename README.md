@@ -1,3 +1,5 @@
+
+
 # Real-Time Table Management (POS) System
 
 ## Introduction
@@ -13,15 +15,29 @@ This project is a web-based POS system designed to streamline campus events by p
 ### 1. Installation
 Clone the repository and install the necessary dependencies:
 ```bash
-git clone [https://github.com/your-username/your-repo-name.git](https://github.com/your-username/your-repo-name.git)
+git clone https://github.com/your-username/your-repo-name.git
 cd your-repo-name
 npm install
 
+```
+
 ### 2. Execution
+
 Configure your environment variables (e.g., Firebase setup) and run the development server:
 
+```bash
 # For development environment
 npm run dev
 
 # Or for standard startup
 npm start
+
+```
+
+## License
+
+MIT License
+
+
+
+```
